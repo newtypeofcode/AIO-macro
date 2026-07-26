@@ -1,0 +1,78 @@
+name: Release
+
+# Tag a version to cut a release:
+#   (bump VERSION first, commit it)
+#   git tag -a v0.2.0 -m "what changed"
+#   git push origin v0.2.0
+#
+# The tag's own message becomes the release notes, so make it a real changelog
+# -- a lightweight tag (no -a/-m) falls back to the commit subject, which is
+# almost never what you want announced.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # needed to read the annotated tag message
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pyinstaller
+
+      - name: Unit tests
+        run: python -m pytest tests/ -q
+
+      - name: Build the exe
+        run: python build_exe.py
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION).Trim()
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item "dist/Macro Studio.exe" package/
+          Copy-Item README.md package/
+          # Assets/, Templates/ and Recordings/ are USER DATA and are never
+          # shipped: the app creates them empty beside the exe on first run.
+          Compress-Archive -Path package/* -DestinationPath "Macro-Studio-$version-Windows.zip" -Force
+
+      - name: Read the tag message for the release notes
+        id: notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag }}"
+          if (-not $tag) { $tag = "${{ github.ref_name }}" }
+          $msg = git tag -l --format='%(contents)' $tag
+          if (-not $msg) { $msg = "Release $tag" }
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "notes<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $msg | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: |
+            Macro-Studio-*-Windows.zip

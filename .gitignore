@@ -1,23 +1,33 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+.pytest_cache/
+stdout.txt
+stderr.txt
+
+# Editor and tooling directories -- local to a machine, not part of the project
+.idea/
 .vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-files
-*.bclicense
-*.flf
-#Test results file
-TestResults.xml
+*.code-workspace
+
+# ---------------------------------------------------------------------------
+# User data. Generated at runtime and PRIVATE: recordings capture real
+# keystrokes, Assets are screenshots of whatever was on screen, settings.json
+# holds the Discord webhook URL. None of it belongs in the repository.
+# ---------------------------------------------------------------------------
+settings.json
+settings.json.tmp
+debug.log
+debug/
+Templates/
+Recordings/
+Assets/
+
+# Anything a user drops beside the exe
+*.png
+*.jpg
+*.jpeg
+!ui/**/*.png
+!docs/**/*.png

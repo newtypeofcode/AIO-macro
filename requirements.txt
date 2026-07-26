@@ -1,0 +1,14 @@
+pywebview       # app window + JS<->Python bridge (Windows: EdgeChromium/WebView2)
+pynput          # global mouse/keyboard hooks used by the recorder
+keyboard        # global hotkeys (F1 start / F2 stop / ...)
+mss             # fast screen-region capture
+opencv-python   # template matching, colour detection, OCR preprocessing
+numpy           # array handling for opencv/mss
+
+# Windows only -- the built-in Windows.Media.Ocr projection. PREFERRED OCR
+# engine on Win10/11: nothing extra to install, ~10x faster than Tesseract.
+winsdk; sys_platform == "win32"
+
+# OCR FALLBACK only, for machines without Windows OCR. The engine binary
+# cannot be pip-installed: https://github.com/UB-Mannheim/tesseract/wiki
+pytesseract

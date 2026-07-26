@@ -1,0 +1,19 @@
+# Normalise line endings so the repository is LF and checkouts are native.
+# Without this every file shows up as fully rewritten on a Windows checkout.
+* text=auto
+
+*.py    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+
+# Batch files must keep CRLF or cmd.exe misparses them.
+*.bat   text eol=crlf
+
+*.png   binary
+*.ico   binary
+*.exe   binary

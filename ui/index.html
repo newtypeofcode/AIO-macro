@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Macro Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===================================================== inline icon defs -->
+<svg class="svg-defs" aria-hidden="true">
+  <defs>
+    <symbol id="i-builder" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="7" height="6" rx="1.5"/><rect x="3" y="14" width="7" height="6" rx="1.5"/>
+      <rect x="14" y="4" width="7" height="16" rx="1.5"/>
+    </symbol>
+    <symbol id="i-record" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2" class="fill"/>
+    </symbol>
+    <symbol id="i-images" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/>
+      <path d="M4 17l5-5 4 4 3-2.5 4 3.5"/>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.8-1.3-1.9-3.3-2.1.8a7.7 7.7 0 0 0-2.6-1.5L14.3 2h-3.8l-.3 2.2a7.7 7.7 0 0 0-2.6 1.5l-2.1-.8-1.9 3.3 1.8 1.3a7.6 7.6 0 0 0 0 3l-1.8 1.3 1.9 3.3 2.1-.8a7.7 7.7 0 0 0 2.6 1.5l.3 2.2h3.8l.3-2.2a7.7 7.7 0 0 0 2.6-1.5l2.1.8 1.9-3.3z"/>
+    </symbol>
+    <symbol id="i-min" viewBox="0 0 12 12"><path d="M2 6.5h8"/></symbol>
+    <symbol id="i-max" viewBox="0 0 12 12"><rect x="2.2" y="2.2" width="7.6" height="7.6" rx="1.4"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 12 12">
+      <rect x="1.8" y="4.2" width="6" height="6" rx="1.3"/>
+      <path d="M4.4 4.2V2.4a.6.6 0 0 1 .6-.6h4.6a.6.6 0 0 1 .6.6V7a.6.6 0 0 1-.6.6H7.8"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 14 14">
+      <path d="M1.6 4.7h2.3l.9-1.5h4.4l.9 1.5h2.3v6.4H1.6z"/><circle cx="7" cy="7.7" r="2.1"/>
+    </symbol>
+    <symbol id="i-chev" viewBox="0 0 12 12"><path d="M3 4.5L6 7.5 9 4.5"/></symbol>
+    <symbol id="i-grip" viewBox="0 0 10 16">
+      <circle cx="3" cy="3" r="1.1" class="fill"/><circle cx="7" cy="3" r="1.1" class="fill"/>
+      <circle cx="3" cy="8" r="1.1" class="fill"/><circle cx="7" cy="8" r="1.1" class="fill"/>
+      <circle cx="3" cy="13" r="1.1" class="fill"/><circle cx="7" cy="13" r="1.1" class="fill"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 14 14"><path d="M4 2.5l7 4.5-7 4.5z" class="fill nostroke"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 14 14">
+      <rect x="4" y="3" width="2.6" height="8" rx=".8" class="fill nostroke"/>
+      <rect x="8" y="3" width="2.6" height="8" rx=".8" class="fill nostroke"/>
+    </symbol>
+    <symbol id="i-stop" viewBox="0 0 14 14"><rect x="3.5" y="3.5" width="7" height="7" rx="1.4" class="fill nostroke"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 14 14">
+      <rect x="2.5" y="2.5" width="7" height="7" rx="1.5"/><rect x="5" y="5" width="7" height="7" rx="1.5"/>
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 14 14">
+      <path d="M2.5 3.5h9M5.5 3.5V2.2h3v1.3M3.7 3.5l.6 8h5.4l.6-8M6 5.8v3.4M8 5.8v3.4"/>
+    </symbol>
+    <symbol id="i-cross" viewBox="0 0 14 14"><path d="M7 2.2v9.6M2.2 7h9.6"/></symbol>
+    <symbol id="i-target" viewBox="0 0 14 14">
+      <circle cx="7" cy="7" r="4"/><path d="M7 .8v2.4M7 10.8v2.4M.8 7h2.4M10.8 7h2.4"/>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 14 14">
+      <path d="M12 7a5 5 0 1 1-1.6-3.7M12 1.6V4.4H9.2"/>
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 14 14">
+      <path d="M1.5 11.2V3.4h3.6l1.2 1.5h6.2v6.3z"/>
+    </symbol>
+    <symbol id="i-expand" viewBox="0 0 14 14">
+      <path d="M5.6 1.8H1.8v3.8M8.4 1.8h3.8v3.8M5.6 12.2H1.8V8.4M8.4 12.2h3.8V8.4"/>
+    </symbol>
+    <symbol id="i-bell" viewBox="0 0 14 14">
+      <path d="M7 1.6a3.5 3.5 0 0 0-3.5 3.5c0 3-1.3 3.9-1.3 3.9h9.6s-1.3-.9-1.3-3.9A3.5 3.5 0 0 0 7 1.6zM5.8 11a1.3 1.3 0 0 0 2.4 0"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div id="app">
+
+  <!-- ================================================================ top -->
+  <header class="titlebar">
+    <div class="brand">
+      <span class="logo"></span>
+      <span class="brand-name">Macro Studio</span>
+      <span class="ver" id="appVersion">—</span>
+    </div>
+
+    <div class="target-chip" id="targetChip" title="Click to open the target picker">
+      <span class="dot dot-off" id="targetDot"></span>
+      <span class="target-title" id="targetTitle">No target selected</span>
+    </div>
+
+    <div class="titlebar-right">
+      <span class="rec-pill hidden" id="recPill"><span class="rec-dot"></span>REC</span>
+      <button class="winbtn" id="btnMin" title="Minimize"><svg class="ic"><use href="#i-min"></use></svg></button>
+      <button class="winbtn" id="btnMax" title="Maximize"><svg class="ic"><use href="#i-max" id="btnMaxIcon"></use></svg></button>
+      <button class="winbtn winbtn-close" id="btnClose" title="Close"><svg class="ic"><use href="#i-close"></use></svg></button>
+    </div>
+  </header>
+
+  <!-- =============================================================== body -->
+  <div class="body">
+
+    <nav class="rail" id="rail">
+      <button class="railbtn active" data-screen="builder" title="Builder">
+        <svg class="ic"><use href="#i-builder"></use></svg><span>Build</span>
+      </button>
+      <button class="railbtn" data-screen="record" title="Record">
+        <svg class="ic"><use href="#i-record"></use></svg><span>Record</span>
+      </button>
+      <button class="railbtn" data-screen="images" title="Images">
+        <svg class="ic"><use href="#i-images"></use></svg><span>Images</span>
+      </button>
+      <button class="railbtn" data-screen="settings" title="Settings">
+        <svg class="ic"><use href="#i-settings"></use></svg><span>Setup</span>
+      </button>
+    </nav>
+
+    <main class="screens">
+
+      <!-- ------------------------------------------------------- BUILDER -->
+      <section class="screen screen-builder active" id="screen-builder">
+        <aside class="palette">
+          <div class="section-label">Block palette</div>
+          <div class="palette-groups" id="paletteGroups"></div>
+          <div class="palette-hint">Drag a block into a phase, or click it to append.</div>
+        </aside>
+
+        <div class="builder-main">
+          <div class="toolbar">
+            <input id="macroName" class="inp inp-name" placeholder="Untitled macro" spellcheck="false" autocomplete="off">
+            <button class="btn btn-primary" id="btnSaveMacro">Save</button>
+            <div class="dropdown">
+              <button class="btn" id="btnLoadMacro">Load <svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
+              <div class="menu hidden" id="macroMenu"></div>
+            </div>
+            <button class="btn" id="btnNewMacro">New</button>
+            <button class="btn btn-ghost-danger" id="btnDeleteMacro">Delete</button>
+            <span class="flex-spacer"></span>
+            <button class="btn" id="btnImportMacro">Import</button>
+            <button class="btn" id="btnExportMacro">Export</button>
+            <span class="save-hint" id="saveHint"></span>
+          </div>
+          <div class="phases" id="phases"></div>
+        </div>
+      </section>
+
+      <!-- -------------------------------------------------------- RECORD -->
+      <section class="screen screen-record" id="screen-record">
+        <div class="rec-top">
+          <div class="card rec-card">
+            <div class="section-label">Recorder</div>
+            <button class="rec-btn" id="btnRecToggle">
+              <span class="rec-btn-dot"></span>
+              <span class="rec-btn-label" id="recBtnLabel">Start Recording</span>
+            </button>
+            <div class="rec-counter">
+              <span class="rec-count" id="recCount">0</span>
+              <span class="rec-count-label">events captured</span>
+            </div>
+            <div class="rec-opts">
+              <label class="switch-row">
+                <span class="switch"><input type="checkbox" id="optRecordMove"><span class="slider"></span></span>
+                <span>Record mouse movement</span>
+              </label>
+              <label class="field">
+                <span class="flab">Minimum gap (ms)</span>
+                <input class="inp inp-num" type="number" id="optMinGap" value="60" min="0" step="10">
+              </label>
+              <button class="btn btn-sm" id="btnRecCancel">Discard pending</button>
+            </div>
+            <div class="hint">Hotkey rebind is on the Setup screen. The recorder never captures your own hotkeys.</div>
+          </div>
+
+          <div class="card saved-card">
+            <div class="section-label">Saved recordings</div>
+            <div class="rec-list" id="recordingsList"></div>
+          </div>
+        </div>
+
+        <div class="card preview-card">
+          <div class="card-head">
+            <div class="section-label">Converted blocks</div>
+            <div class="card-head-actions">
+              <button class="btn btn-sm" id="btnPreviewAll">Select all</button>
+              <button class="btn btn-sm" id="btnPreviewNone">Select none</button>
+              <span class="flex-spacer"></span>
+              <button class="btn btn-sm" id="btnInsertSetup">Insert into Setup</button>
+              <button class="btn btn-sm btn-primary" id="btnInsertLoop">Insert into Loop</button>
+              <button class="btn btn-xs btn-secondary" id="btnInsertSeparate">Insert as separate blocks</button>
+              <button class="btn btn-sm" id="btnSaveRecording">Save as recording</button>
+            </div>
+          </div>
+          <div class="preview-list" id="previewList">
+            <div class="empty">Nothing recorded yet. Press Start Recording, do the actions, then stop.</div>
+          </div>
+          <div class="hint preview-hint">
+            The tick boxes only affect “Insert as separate blocks” — the two Insert buttons
+            always add one Play Recording block for the whole take.
+          </div>
+        </div>
+      </section>
+
+      <!-- -------------------------------------------------------- IMAGES -->
+      <section class="screen screen-images" id="screen-images">
+        <div class="card">
+          <div class="card-head">
+            <div class="section-label">Image manager</div>
+            <div class="card-head-actions">
+              <button class="btn btn-sm btn-primary" id="btnCaptureTarget"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> Capture target</button>
+              <button class="btn btn-sm" id="btnImgExpand"><svg class="ic ic-xs"><use href="#i-expand"></use></svg> Pick in large view</button>
+              <span class="hint" id="captureHint">Capture opens the large view — drag with the left button to crop, middle-drag to pan.</span>
+            </div>
+          </div>
+          <div class="capture-wrap" id="imgCaptureWrap">
+            <div class="canvas-col" id="imgCanvasCol">
+              <div class="zoombar">
+                <button class="zoombtn" id="btnImgZoomOut" title="Zoom out">−</button>
+                <span class="zoom-readout" id="imgZoomReadout">100%</span>
+                <button class="zoombtn" id="btnImgZoomIn" title="Zoom in">+</button>
+                <button class="btn btn-sm" id="btnImgZoomFit">Fit</button>
+                <span class="flex-spacer"></span>
+                <span class="hint zoom-hint">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms · middle-drag pans.</span>
+              </div>
+              <div class="canvas-holder" id="imgCanvasHolder">
+                <div class="canvas-stage" id="imgCanvasStage">
+                  <canvas id="imgCanvas" width="10" height="10"></canvas>
+                  <div class="sel-box hidden" id="imgSelBox"></div>
+                </div>
+                <div class="canvas-empty" id="imgCanvasEmpty">No capture yet</div>
+              </div>
+            </div>
+            <div class="capture-side">
+              <div class="readout" id="imgSelReadout">x 0 · y 0 · 0 × 0</div>
+              <label class="field field-block">
+                <span class="flab">Image name</span>
+                <input class="inp" id="imgName" placeholder="e.g. play_button" spellcheck="false">
+              </label>
+              <button class="btn btn-primary btn-wide" id="btnSaveNew">Save as new</button>
+              <button class="btn btn-wide" id="btnSaveVariant">Save as variant</button>
+              <button class="btn btn-wide" id="btnOpenAssets2">Open Assets folder</button>
+              <div class="hint">Variants let one name match several looks (hover, pressed, different scale).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="section-label">Templates</div>
+            <div class="card-head-actions">
+              <div class="conf-row" id="confRow">
+                <span class="flab" id="confLabel">Test confidence</span>
+                <input type="range" id="setThreshold" min="0.5" max="1" step="0.01" value="0.88">
+                <span class="sval" id="valThreshold">0.88</span>
+              </div>
+              <span class="flex-spacer"></span>
+              <button class="btn btn-sm" id="btnRefreshTemplates"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> Refresh</button>
+            </div>
+          </div>
+          <div class="hint conf-hint">
+            Used by the Test buttons below, and as the starting confidence for newly added Vision blocks.
+            Blocks you already built keep their own value.
+          </div>
+          <div class="tpl-grid" id="templateGrid"></div>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------ SETTINGS -->
+      <section class="screen screen-settings" id="screen-settings">
+        <div class="settings-grid">
+
+          <div class="card">
+            <div class="card-head">
+              <div class="section-label">Target window</div>
+              <div class="card-head-actions">
+                <span class="attach-ind" id="attachInd"><span class="dot dot-off"></span><span>not attached</span></span>
+                <button class="btn btn-sm" id="btnRefreshWindows"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> Refresh</button>
+              </div>
+            </div>
+            <div class="target-tools">
+              <input class="inp" id="winSearch" placeholder="Filter by title or process..." spellcheck="false">
+              <button class="btn btn-sm" id="btnUseScreen">Use whole screen</button>
+              <button class="btn btn-sm" id="btnFocusTarget">Focus target</button>
+            </div>
+            <div class="win-list" id="winList"></div>
+          </div>
+
+          <div class="card">
+            <div class="section-label">Hotkeys</div>
+            <div class="hotkey-grid" id="hotkeyGrid"></div>
+            <div class="hint">Click a key, then press the key you want. Hotkeys are global.</div>
+          </div>
+
+          <div class="card">
+            <div class="section-label">Execution</div>
+            <div class="setting-rows">
+              <div class="setting-row">
+                <span class="slabel">Action delay</span>
+                <input type="range" id="setActionDelay" min="0" max="2000" step="10" value="0">
+                <span class="sval" id="valActionDelay">0 ms</span>
+              </div>
+              <label class="switch-row">
+                <span class="switch"><input type="checkbox" id="setRecordMove"><span class="slider"></span></span>
+                <span>Record mouse movement</span>
+              </label>
+              <label class="switch-row">
+                <span class="switch"><input type="checkbox" id="setLoopForever"><span class="slider"></span></span>
+                <span>Loop forever</span>
+              </label>
+              <div class="setting-row">
+                <span class="slabel">Loop count</span>
+                <input class="inp inp-num" type="number" id="setLoopCount" min="1" step="1" value="1">
+                <span class="sval"></span>
+              </div>
+              <div class="hint">
+                Match confidence now lives on the Images screen as “Test confidence”, next to the Test buttons it drives.
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-label">Appearance</div>
+            <div class="hint theme-hint">Pick a theme. It is applied instantly and remembered.</div>
+            <div class="theme-grid" id="themeGrid"></div>
+          </div>
+
+          <div class="card" id="webhookCard">
+            <div class="card-head">
+              <div class="section-label">Discord webhook</div>
+              <div class="card-head-actions">
+                <span class="attach-ind" id="hookInd"><span class="dot dot-off"></span><span>not configured</span></span>
+              </div>
+            </div>
+
+            <div class="hook-state" id="hookState">
+              <span class="hook-state-dot"></span>
+              <span id="hookStateText">Sending is off — nothing is ever sent to Discord.</span>
+            </div>
+
+            <div class="setting-rows hook-rows">
+              <label class="switch-row">
+                <span class="switch"><input type="checkbox" id="hookEnabled"><span class="slider"></span></span>
+                <span>Enable sending</span>
+              </label>
+
+              <div class="hook-url-row">
+                <span class="flab">Saved URL</span>
+                <span class="readout hook-masked" id="hookMasked">no URL saved</span>
+              </div>
+
+              <label class="field field-block">
+                <span class="flab">New webhook URL</span>
+                <input class="inp" id="hookUrl" type="password" autocomplete="off" spellcheck="false"
+                       placeholder="https://discord.com/api/webhooks/...">
+              </label>
+
+              <label class="field field-block">
+                <span class="flab">Bot name</span>
+                <input class="inp" id="hookUser" spellcheck="false" placeholder="Macro Studio">
+              </label>
+
+              <div class="hook-actions">
+                <button class="btn btn-sm btn-primary" id="btnHookSave">Save URL</button>
+                <button class="btn btn-sm" id="btnHookTest">Send test message</button>
+                <span class="flex-spacer"></span>
+                <button class="btn btn-sm btn-ghost-danger" id="btnHookClear">Remove URL</button>
+              </div>
+              <div class="hint" id="hookHint">The URL is a secret: once saved it never leaves the app again, only a masked form is shown.</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="section-label">Diagnostics</div>
+              <div class="card-head-actions">
+                <button class="btn btn-sm btn-primary" id="btnHealth">Run health check</button>
+              </div>
+            </div>
+            <div class="health-list" id="healthList">
+              <div class="empty">Run the check to verify capture, input and OCR.</div>
+            </div>
+            <div class="env-row" id="envRow"></div>
+            <div class="card-head-actions folder-row">
+              <button class="btn btn-sm" id="btnOpenData"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> Data folder</button>
+              <button class="btn btn-sm" id="btnOpenAssets"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> Assets folder</button>
+              <span class="flex-spacer"></span>
+              <button class="btn btn-sm btn-ghost-danger" id="btnResetSettings">Reset settings</button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================================================== logs -->
+  <div class="logpanel collapsed" id="logPanel">
+    <div class="log-head" id="logHead">
+      <button class="log-toggle" id="btnLogToggle"><svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
+      <span class="section-label">Activity log</span>
+      <span class="log-last" id="logLast"></span>
+      <span class="flex-spacer"></span>
+      <button class="btn btn-sm" id="btnClearLogs">Clear</button>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </div>
+
+  <!-- ====================================================== control bar -->
+  <footer class="controlbar">
+    <button class="cbtn cbtn-start" id="btnStart"><svg class="ic ic-sm"><use href="#i-play"></use></svg><span>Start</span></button>
+    <button class="cbtn" id="btnPause" disabled><svg class="ic ic-sm"><use href="#i-pause"></use></svg><span>Pause</span></button>
+    <button class="cbtn cbtn-stop" id="btnStop" disabled><svg class="ic ic-sm"><use href="#i-stop"></use></svg><span>Stop</span></button>
+
+    <div class="status-readout">
+      <span class="run-dot" id="runDot"></span>
+      <span class="status-action" id="statusAction">Idle</span>
+      <span class="status-sep"></span>
+      <span class="status-loop" id="statusLoop">loop 0</span>
+    </div>
+
+    <span class="flex-spacer"></span>
+    <span class="status-meta" id="statusMeta"></span>
+  </footer>
+</div>
+
+<!-- ================================================================ modals -->
+<div class="overlay hidden" id="pickOverlay">
+  <div class="pick-card">
+    <div class="pick-ring"></div>
+    <div class="pick-title" id="pickTitle">Click anywhere to capture a coordinate</div>
+    <div class="pick-sub">The next left click anywhere on screen is captured. <span id="pickTimer">30</span>s left.</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="regionModal">
+  <div class="modal modal-huge">
+    <div class="modal-head">
+      <span class="section-label">Select region</span>
+      <span class="readout" id="regionReadout">x 0 · y 0 · 0 × 0</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnRegionClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body modal-body-canvas">
+      <div class="zoombar">
+        <button class="zoombtn" id="btnRegionZoomOut" title="Zoom out">−</button>
+        <span class="zoom-readout" id="regionZoomReadout">100%</span>
+        <button class="zoombtn" id="btnRegionZoomIn" title="Zoom in">+</button>
+        <button class="btn btn-sm" id="btnRegionZoomFit">Fit</button>
+        <span class="flex-spacer"></span>
+        <span class="hint zoom-hint">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms.</span>
+      </div>
+      <div class="canvas-holder" id="regionCanvasHolder">
+        <div class="canvas-stage" id="regionCanvasStage">
+          <canvas id="regionCanvas" width="10" height="10"></canvas>
+          <div class="sel-box hidden" id="regionSelBox"></div>
+        </div>
+        <div class="canvas-empty" id="regionCanvasEmpty">Capturing target...</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnRegionClear">Clear region</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnRegionCancel">Cancel</button>
+      <button class="btn btn-primary" id="btnRegionApply">Use region</button>
+    </div>
+  </div>
+</div>
+
+<!-- The Images capture area is MOVED into this modal (not copied), so the crop
+     rectangle and its source-pixel maths stay in one single selector. -->
+<div class="overlay hidden" id="bigViewModal">
+  <div class="modal modal-huge">
+    <div class="modal-head">
+      <span class="section-label" id="bigViewTitle">Crop image — large view</span>
+      <span class="reshoot-tag hidden" id="bigViewTag"></span>
+      <span class="readout" id="bigViewReadout">x 0 · y 0 · 0 × 0</span>
+      <span class="flex-spacer"></span>
+      <button class="btn btn-sm" id="btnBigViewReshoot"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> Re-capture</button>
+      <button class="iconbtn" id="btnBigViewClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body modal-body-canvas" id="bigViewSlot"></div>
+    <div class="modal-foot bigview-foot">
+      <label class="field bigview-name">
+        <span class="flab">Image name</span>
+        <input class="inp inp-sm" id="bigViewName" placeholder="e.g. play_button" spellcheck="false" autocomplete="off">
+      </label>
+      <span class="hint bigview-hint" id="bigViewHint">Left-drag crops · middle-drag pans · ctrl+wheel zooms.</span>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnBigViewClear">Clear selection</button>
+      <button class="btn" id="btnBigViewVariant">Save as variant</button>
+      <button class="btn btn-primary" id="btnBigViewSave">Save as new</button>
+      <button class="btn btn-secondary" id="btnBigViewDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image picker for every "template" field: thumbnails instead of a bare name. -->
+<div class="overlay hidden" id="tplPickModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label">Choose a saved image</span>
+      <input class="inp inp-sm tplpick-filter" id="tplPickFilter" placeholder="Filter by name…" spellcheck="false" autocomplete="off">
+      <span class="readout" id="tplPickCurrent">none</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnTplPickClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="tplpick-grid" id="tplPickGrid"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnTplPickNew"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> ＋ Capture new</button>
+      <button class="btn btn-ghost-danger" id="btnTplPickNone">Use no image</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnTplPickCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="blocksEditModal">
+  <div class="modal modal-huge">
+    <div class="modal-head">
+      <span class="section-label" id="blocksEditTitle">Fallback blocks</span>
+      <span class="readout" id="blocksEditSub">—</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnBlocksEditClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body blocks-edit-body">
+      <aside class="palette palette-modal">
+        <div class="section-label">Block palette</div>
+        <div class="palette-groups" id="blocksEditPalette"></div>
+        <div class="palette-hint">Drag a block into the list, or click it to append.</div>
+      </aside>
+      <div class="blocks-edit-main">
+        <div class="hint">These blocks run instead of continuing when the block above fails. Drag the grip (or ↑ ↓) to reorder.</div>
+        <div class="blocklist blocks-edit-list" id="blocksEditList"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost-danger" id="btnBlocksEditClear">Remove all</button>
+      <span class="flex-spacer"></span>
+      <button class="btn btn-primary" id="btnBlocksEditDone">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="hookPreviewModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label">Webhook attachment preview</span>
+      <span class="readout" id="hookPreviewDetail">—</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnHookPreviewClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hook-preview" id="hookPreviewBody"><div class="empty">Rendering…</div></div>
+      <div class="hint">Nothing has been sent — this is only what the block would attach.</div>
+    </div>
+    <div class="modal-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnHookPreviewDone">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="recEditModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" id="recEditTitle">Actions</span>
+      <span class="readout" id="recEditSub">—</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnRecEditClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hint">Edit the fields, drag the grip (or use ↑ ↓) to reorder, and delete what you do not need. New block types are added in the Builder, not here.</div>
+      <div class="blocklist recedit-list" id="recEditList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost-danger" id="btnRecEditReset">Reset to original</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnRecEditCancel">Close</button>
+      <button class="btn btn-primary" id="btnRecEditSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="textModal">
+  <div class="modal">
+    <div class="modal-head"><span class="section-label" id="textModalTitle">Name</span></div>
+    <div class="modal-body">
+      <input class="inp" id="textModalInput" spellcheck="false" autocomplete="off">
+      <div class="hint" id="textModalHint"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnTextCancel">Cancel</button>
+      <button class="btn btn-primary" id="btnTextOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="confirmModal">
+  <div class="modal">
+    <div class="modal-head"><span class="section-label" id="confirmTitle">Are you sure?</span></div>
+    <div class="modal-body"><div class="confirm-text" id="confirmText"></div></div>
+    <div class="modal-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnConfirmCancel">Cancel</button>
+      <button class="btn btn-danger" id="btnConfirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
