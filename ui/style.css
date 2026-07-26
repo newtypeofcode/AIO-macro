@@ -1405,5 +1405,9 @@ input[type=range]::-webkit-slider-thumb {
   .preview-list { max-height: 32vh; }
   .rec-btn { height: 46px; font-size: 14px; }
   .rec-count { font-size: 24px; }
-  .modal { max-height: 94vh; }
+  /* :not() so this cannot reach the near-fullscreen pickers. Both selectors
+     weigh the same, and this one -- being later in the file -- quietly clawed
+     12px back off the one modal whose whole job is to be as big as the window
+     allows. */
+  .modal:not(.modal-huge) { max-height: 94vh; }
 }

@@ -2182,11 +2182,22 @@ function coordPickButton(block, ctx) {
   return wrapField(t("field_coords"), btn);
 }
 
+/* Every other block's x/y is measured inside the target window's client area,
+   which is what pick_point returns. Focus Target is the exception: it moves
+   the window itself, so its x/y are screen coordinates and MoveWindow reads
+   them as such. Filling them with client coordinates put the window off by
+   the client origin every time -- clicking where you wanted the corner threw
+   the window off the top-left of the monitor. */
+function screenCoordBlock(block) {
+  return block && block.type === "focus_window";
+}
+
 async function pickPointInto(block, ctx) {
   var point = await pickPoint();
   if (!point || !point.ok) return;
-  block.params.x = point.x;
-  block.params.y = point.y;
+  var screenSpace = screenCoordBlock(block);
+  block.params.x = screenSpace && point.screen_x !== undefined ? point.screen_x : point.x;
+  block.params.y = screenSpace && point.screen_y !== undefined ? point.screen_y : point.y;
   if (ctx) { ctx.rerender(); ctx.changed(); }
   else { renderPhases(); markDirty(); }
 }
@@ -2332,16 +2343,25 @@ function performDrop(payload, ctx, index) {
 /* ==========================================================================
    13. MACRO IO + DEBOUNCED AUTOSAVE
    ========================================================================== */
-function setSaveHint(text, saved) {
+/* Takes a STRINGS key rather than finished text, and remembers it: the hint
+   is written once and then sits there, so translating at the call site left
+   "loaded" in English next to a fully Russian toolbar until the next save. */
+function setSaveHint(key, saved) {
   var hint = $("#saveHint");
+  state.saveHintKey = key || "";
+  state.saveHintSaved = !!saved;
   if (!hint) return;
-  hint.textContent = text || "";
+  hint.textContent = key ? t(key) : "";
   hint.classList.toggle("saved", !!saved);
+}
+
+function repaintSaveHint() {
+  setSaveHint(state.saveHintKey, state.saveHintSaved);
 }
 
 function markDirty() {
   if (state.dirtySink) { state.dirtySink(); return; }
-  setSaveHint(t(state.currentName ? "hint_unsaved" : "hint_not_saved"), false);
+  setSaveHint(state.currentName ? "hint_unsaved" : "hint_not_saved", false);
   debounce("saveTimer", 800, function () {
     if (!state.currentName) return;
     autosave();
@@ -2351,7 +2371,7 @@ function markDirty() {
 async function autosave() {
   var result = await apiQ("save_macro", state.currentName, currentMacro());
   if (result && result.macros) state.macros = result.macros;
-  setSaveHint(t(result ? "hint_saved" : "hint_save_failed"), !!result);
+  setSaveHint(result ? "hint_saved" : "hint_save_failed", !!result);
 }
 
 async function saveMacroClicked() {
@@ -2367,7 +2387,7 @@ async function saveMacroClicked() {
   $("#macroName").value = state.currentName;
   state.macro.name = state.currentName;
   if (result.macros) state.macros = result.macros;
-  setSaveHint(t("hint_saved"), true);
+  setSaveHint("hint_saved", true);
   toast(tf("toast_saved", state.currentName), "ok");
 }
 
@@ -2392,7 +2412,7 @@ async function loadMacroNamed(name) {
   var macro = await api("load_macro", name);
   if (!macro) return;
   setMacro(macro, macro.name || name);
-  setSaveHint(t("hint_loaded"), true);
+  setSaveHint("hint_loaded", true);
   toast(tf("toast_loaded", macro.name || name));
 }
 
@@ -2461,7 +2481,7 @@ async function importMacro() {
   }
   var macro = result.macro || {};
   setMacro(macro, macro.name || "");
-  setSaveHint(t("hint_imported"));
+  setSaveHint("hint_imported");
   toast(t("toast_imported"), "ok");
 }
 
@@ -2617,9 +2637,15 @@ async function importMacroBundle() {
     return;
   }
 
+  /* Before anything repaints. An overwriting import replaces the FILE behind
+     a name the rows already show, so the cached thumbnail is stale while the
+     name is not -- and refreshTemplates below only drops the cache after its
+     await, by which time the rows have been rebuilt from it. */
+  invalidateThumbs();
+
   if (result.macro) {
     setMacro(result.macro, result.macro.name || info.macro_name || "");
-    setSaveHint(t("hint_imported"));
+    setSaveHint("hint_imported");
   }
   if (Array.isArray(result.recordings_list)) {
     state.recordings = result.recordings_list;
@@ -2887,7 +2913,7 @@ function renderRecordings() {
       toast(tf("rec_toast_loaded", name));
     });
 
-    var use = el("button", { class: "btn btn-sm primary", text: t("rec_btn_use") });
+    var use = el("button", { class: "btn btn-sm btn-primary", text: t("rec_btn_use") });
     attachTip(use, t("rec_btn_use"), t("rec_tip_use"));
     use.addEventListener("click", function () {
       addPlaybackBlock(name, "loop");
@@ -3847,7 +3873,7 @@ function openTemplatePicker(current) {
     var filter = $("#tplPickFilter");
     if (filter) filter.value = "";
     var readout = $("#tplPickCurrent");
-    if (readout) readout.textContent = tplPick.current || "none";
+    if (readout) readout.textContent = tplPick.current || t("none_dash");
 
     overlay.classList.remove("hidden");
     renderTplPickGrid();
@@ -3926,6 +3952,22 @@ async function pickColor() {
     return null;
   }
   return result;
+}
+
+/* The last rectangle the region picker reported, kept so the readout can be
+   repainted in another language. It only ever changes on a selection change,
+   so without this a language switch left one English line in an otherwise
+   Russian modal -- and clearing the selection put it straight back. */
+var regionReadoutRect = null;
+
+function paintRegionReadout(rect) {
+  if (rect !== undefined) regionReadoutRect = rect;
+  var node = $("#regionReadout");
+  if (!node) return;
+  var r = regionReadoutRect;
+  node.textContent = r
+    ? "x " + r[0] + " · y " + r[1] + " · " + r[2] + " × " + r[3]
+    : t("region_readout_none");
 }
 
 /* Resolves with [x,y,w,h], null (cleared) or undefined (cancelled). */
@@ -4220,6 +4262,11 @@ function relocalize() {
   applyBigViewMode();
   setRecordingUI(state.recording);
   setMaximizedUI(winMaximized);
+  /* Written once and then left alone, so each needs asking again in the new
+     language rather than waiting for whatever event first wrote it. */
+  renderEnvRow(state.boot || {});
+  repaintSaveHint();
+  paintRegionReadout();
   if (recEdit.open) renderRecEditList();
   if (blocksEdit.open) { buildBlocksEditPalette(); renderBlocksEditList(); }
   /* The control bar and the target chip are written from the poll, not from
@@ -4237,6 +4284,7 @@ async function refreshCatalog() {
   state.byType = {};
   state.catalog.forEach(function (spec) { state.byType[spec.type] = spec; });
   if (Array.isArray(boot.phases) && boot.phases.length) state.phases = boot.phases;
+  state.boot = boot;
   return boot;
 }
 
@@ -4662,7 +4710,13 @@ function wireStatic() {
   wireMenuButton("#btnLoadMacro", "#macroMenu", refreshMacroList);
   wireMenuButton("#btnImportMacro", "#importMenu");
   wireMenuButton("#btnExportMacro", "#exportMenu");
-  document.addEventListener("click", function () { closeToolMenus(); });
+  /* Capture-phase mousedown, not a bubbling click: the custom dropdowns in
+     the block rows call stopPropagation on their own click, so a toolbar menu
+     stayed open behind a select panel that had just opened on top of it. */
+  document.addEventListener("mousedown", function (e) {
+    if (e.target && e.target.closest && e.target.closest(".dropdown")) return;
+    closeToolMenus();
+  }, true);
 
   /* a row is only draggable while its grip is held down */
   document.addEventListener("mouseup", function () {
@@ -4735,11 +4789,7 @@ function wireStatic() {
     zoomReadoutBinder("#imgZoomReadout"));
   regionSel = createRectSelector(
     $("#regionCanvasHolder"), $("#regionCanvasStage"), $("#regionCanvas"), $("#regionSelBox"),
-    function (rect) {
-      $("#regionReadout").textContent = rect
-        ? "x " + rect[0] + " · y " + rect[1] + " · " + rect[2] + " × " + rect[3]
-        : "no region — full target";
-    },
+    paintRegionReadout,
     zoomReadoutBinder("#regionZoomReadout"));
 
   $("#btnImgZoomIn").addEventListener("click", function () { imgSel.zoomIn(); });
@@ -4901,6 +4951,7 @@ async function init() {
     boot = {};
   }
 
+  state.boot = boot;                  /* relocalize() repaints the env row */
   state.version = boot.version || "0.0.0";
   state.catalog = Array.isArray(boot.catalog) ? boot.catalog : [];
   state.byType = {};
