@@ -2511,8 +2511,9 @@ async function reshootTemplate(name) {
   if (nameInput) nameInput.value = name;
   bigView.reshoot = name;
   var ok = await captureForImages();
-  if (!ok) { bigView.reshoot = ""; return; }
-  openImgLargeView();
+  /* The mode must never outlive the view it belongs to: left set, the next
+     ordinary save would quietly write to this template instead. */
+  if (!ok || !openImgLargeView()) bigView.reshoot = "";
 }
 
 async function recaptureInBigView() {
@@ -2628,6 +2629,9 @@ async function saveCrop(asVariant) {
   } else {
     refreshTemplates();
   }
+  /* A re-shoot changes the picture BEHIND a name every builder row already
+     shows, so those rows are now displaying the very look that was replaced. */
+  if (reshot) renderPhases();
   toast(reshot
     ? (asVariant ? "Variant added to '" + name + "'" : "Replaced the image for '" + name + "'")
     : (asVariant ? "Variant" : "Image") + " '" + name + "' saved", "ok");

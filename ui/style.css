@@ -602,7 +602,6 @@ input[type=range]::-webkit-slider-thumb {
 .f-text { width: 190px; }
 .f-choice { width: 108px; }
 .f-color-hex { width: 84px; font-family: var(--mono); font-size: 11.5px; }
-.f-template { width: 148px; }
 .f-recording { width: 148px; }
 .f-region-num { width: 52px; }
 
