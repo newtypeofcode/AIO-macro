@@ -60,6 +60,9 @@ class Api:
         cfg = settingsmod.load()
         from core import pacing
         pacing.set_action_delay_ms(cfg.get("action_delay_ms", 0))
+        # Before the first get_bootstrap, so the catalog the UI receives is
+        # already in the saved language rather than the import-time default.
+        self._apply_language(cfg.get("language"))
 
     # ------------------------------------------------------------ internals
 
@@ -889,7 +892,27 @@ class Api:
     def get_settings(self) -> dict:
         return settingsmod.load()
 
+    def _apply_language(self, value) -> str:
+        """Point the block catalog at a language, and report which one stuck.
+
+        The catalog is rewritten in place, so this has to happen on the
+        Python side: the UI can translate its own chrome on its own, but
+        block descriptions and field help come from `catalog()` and would
+        stay in whichever language the module was imported with.
+        """
+        from core import blocks as blockmod
+        try:
+            return blockmod.set_language(value)
+        except Exception as exc:
+            self.push_log("Language: %s" % exc)
+            return blockmod.get_language()
+
     def set_setting(self, key: str, value) -> dict:
+        if key == "language":
+            # An unsupported code falls back rather than raising, and the
+            # fallback is what gets saved -- otherwise settings.json keeps a
+            # language nothing can render and the picker highlights nothing.
+            value = self._apply_language(value)
         merged = settingsmod.update({key: value})
         if key == "action_delay_ms":
             from core import pacing
@@ -901,6 +924,7 @@ class Api:
     def reset_settings(self) -> dict:
         settingsmod.save({})
         merged = settingsmod.load()
+        self._apply_language(merged.get("language"))
         if self._on_hotkeys_changed:
             self._on_hotkeys_changed(merged)
         return merged

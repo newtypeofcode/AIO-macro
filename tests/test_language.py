@@ -112,6 +112,76 @@ def test_the_language_setting_exists_and_defaults_to_english():
     assert smod.DEFAULTS["language"] == "en"
 
 
+# --------------------------------------------------------- the API wiring
+
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    """A real Api against a throwaway settings file."""
+    from core import settings as smod
+    import main
+    monkeypatch.setattr(smod, "SETTINGS_FILE", str(tmp_path / "settings.json"))
+    return main, smod
+
+
+def test_choosing_a_language_switches_the_catalog_not_just_the_setting(api):
+    """The catalog is built on the Python side, so persisting the setting is
+    only half the job -- without this the UI chrome switched but every block
+    description and tooltip stayed in the import-time language."""
+    main, smod = api
+    instance = main.Api()
+    instance.set_setting("language", "ru")
+    assert blocks.get_language() == "ru"
+    assert smod.load()["language"] == "ru"
+    desc = instance.get_bootstrap()["catalog"][0]["desc"]
+    import re
+    assert re.search(r"[а-яА-Я]", desc), desc
+
+    instance.set_setting("language", "en")
+    assert blocks.get_language() == "en"
+    assert not re.search(r"[а-яА-Я]{2,}",
+                         instance.get_bootstrap()["catalog"][0]["desc"])
+
+
+def test_the_saved_language_is_applied_before_the_first_bootstrap(api):
+    """Startup order matters: get_bootstrap is the first call the UI makes,
+    and it must already carry the saved language."""
+    main, smod = api
+    smod.save({"language": "ru"})
+    blocks.set_language("en")
+    instance = main.Api()
+    assert blocks.get_language() == "ru"
+    import re
+    assert re.search(r"[а-яА-Я]", instance.get_bootstrap()["catalog"][0]["desc"])
+
+
+def test_an_unsupported_language_is_not_left_in_the_settings_file(api):
+    """Saving the request rather than the result would leave settings.json
+    naming a language nothing can render, and the picker highlighting
+    nothing."""
+    main, smod = api
+    instance = main.Api()
+    merged = instance.set_setting("language", "klingon")
+    assert merged["language"] == block_help.DEFAULT_LANGUAGE
+    assert smod.load()["language"] == block_help.DEFAULT_LANGUAGE
+    assert blocks.get_language() == block_help.DEFAULT_LANGUAGE
+
+
+def test_resetting_settings_puts_the_catalog_back_too(api):
+    main, smod = api
+    instance = main.Api()
+    instance.set_setting("language", "ru")
+    instance.reset_settings()
+    assert blocks.get_language() == smod.DEFAULTS["language"]
+
+
+def test_setting_something_else_leaves_the_language_alone(api):
+    main, _ = api
+    instance = main.Api()
+    instance.set_setting("language", "ru")
+    instance.set_setting("action_delay_ms", 25)
+    assert blocks.get_language() == "ru"
+
+
 def test_the_two_tables_have_identical_keys():
     from core import block_help_en as en
     assert set(en.HELP) == set(block_help.HELP)

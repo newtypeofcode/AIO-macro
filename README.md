@@ -1,320 +1,134 @@
 # Macro Studio
 
-Блочный конструктор макросов для Windows с записью действий, компьютерным зрением и OCR.
+Block-based macro builder for Windows with action recording, computer vision and OCR.
 
-Записываешь мышь и клавиатуру → запись превращается в редактируемые блоки → правишь, добавляешь ожидание картинки/цвета/текста → запускаешь по любому окну.
+Record your mouse and keyboard, get editable blocks, add waits for an image, a colour or a piece of text, and run it against any window.
 
-Никакого инжекта в процессы, никакого чтения памяти. Только синтетический ввод через `SendInput` и анализ картинки с экрана.
+No injection, no memory reading — synthetic input through `SendInput` plus screen analysis.
 
----
-
-## Быстрый старт
+## Quick start
 
 ```bash
 pip install -r requirements.txt
 python main.py
 ```
 
-или двойной клик по `run.bat`.
+Or double-click `run.bat`. Headless diagnostics: `python main.py --test`.
 
-Диагностика без интерфейса:
+Needs **Windows 10/11**, **Python 3.10+** and the **WebView2 runtime** (already present on most systems). Tesseract is *not* required — Win10/11 use the built-in `Windows.Media.Ocr`, roughly ten times faster; Tesseract is only a fallback.
 
-```bash
-python main.py --test
-```
-
-Требования: **Windows 10/11**, **Python 3.10+**, **WebView2 Runtime** (предустановлен на большинстве систем).
-
-Tesseract ставить **не нужно** — на Win10/11 используется встроенный `Windows.Media.Ocr`, он в ~10 раз быстрее. Tesseract подхватывается только как запасной вариант, если встроенного OCR нет.
-
----
-
-## Как работает
+## How it works
 
 ```
-Запись           pynput-хуки перехватывают реальный ввод независимо от фокуса
+Record      pynput hooks capture real input regardless of focus
    ↓
-События          [{t, type, key/button, x, y, vk, char}, ...]
+Events      [{t, type, key/button, x, y, vk, char}, ...]
    ↓
-Конвертация      парные down/up → click; down-move-up → drag;
-                 паузы → wait_ms; серия символов → type_text
+Convert     paired down/up → click; down-move-up → drag;
+            gaps → wait; a run of characters → type text
    ↓
-Блоки            редактируешь в интерфейсе
+Blocks      edit them in the UI
    ↓
-Исполнение       SendInput скан-кодами + cv2.matchTemplate + OCR
+Run         SendInput scancodes + cv2.matchTemplate + OCR
 ```
 
-Координаты хранятся **относительно клиентской области окна-цели**, а не экрана. Поэтому макрос не ломается, когда окно передвинули или изменили размер. В режиме «весь экран» координаты абсолютные.
+Coordinates are stored **relative to the target window's client area**, so a macro survives the window being moved or resized. In whole-screen mode they are absolute.
 
-### Независимость от раскладки
+**Layout independence.** The recorder stores the *physical key*, not the character. Pressing `A` on a Cyrillic layout gives `key="a"`, `vk=65`, `char="ф"` — the physical key is what replays; the character is only used to fold a run of keystrokes into one Type Text block. Type Text itself injects Unicode, so it types the same string under any layout.
 
-Записывается **физическая клавиша**, а не символ. Нажатие клавиши `A` на русской раскладке даёт:
+## Blocks
 
-```
-key = "a"      ← физическая позиция, это и воспроизводится
-vk  = 65       ← виртуальный код
-char = "ф"     ← что выдала раскладка, используется только для склейки в type_text
-```
-
-Если бы писался символ `ф`, воспроизведение не сработало бы вообще. Блок `Type Text` — наоборот, вводит литеральный текст через Unicode-инъекцию, поэтому `Привет` печатается как `Привет` при любой раскладке.
-
----
-
-## Блоки
-
-| Группа | Блок | Что делает |
-|---|---|---|
-| **Mouse** | Click | клик по координате, N раз, любая кнопка |
-| | Move Mouse | переместить курсор, опционально плавно |
-| | Drag | зажать, провести, отпустить |
-| | Scroll | колесо, ±120 на щелчок |
-| **Keyboard** | Send Key | клавиша + модификаторы (Shift/Ctrl/Alt/Win) |
-| | Type Text | литеральный текст, Unicode, любая раскладка |
-| | Hold Key | зажать клавишу на N мс |
-| **Timing** | Wait (ms) | пауза |
-| | Wait Random | пауза в диапазоне |
-| **Vision** | Wait for Image | ждать появления картинки |
-| | Click Image | найти картинку и кликнуть по ней (+смещение) |
-| | Wait Image Gone | ждать исчезновения |
-| | Wait for Color | ждать цвет в точке с допуском |
-| | Click Color | найти пятно цвета и кликнуть в его центр |
-| | Wait for Text | ждать текст в области (OCR) |
-| | Click Text | найти надпись на экране и кликнуть по ней |
-| | Read Text | распознать область и записать в лог |
-
-**Confidence** у блоков картинок и текста — насколько точным должно быть совпадение. У текста дословное вхождение засчитывается всегда, порог включается только когда OCR ошибся в буквах (латинская `C` против русской `С`).
-| **Flow** | Loop Start / Loop End | повторить участок N раз, вложенность работает |
-| | Play Recording | воспроизвести сырую запись с исходным таймингом |
-| | Focus Target | вывести окно-цель на передний план |
-| | Log Message | строка в лог |
-
-У каждого блока есть тумблер **ONCE** (не повторять в цикле), кнопка **▶** (прогнать только этот блок) и переключатель «включён/выключен» — клик по названию блока.
-
-**Наведи курсор** на блок в палитре, на название блока в строке или на подпись любого поля — всплывёт описание, что это и как настраивать. Тексты лежат в [core/block_help.py](core/block_help.py), там же меняется язык подсказок.
-
-Блоки зрения с полем **On fail** выбирают поведение при ненахождении: `continue` (идти дальше), `skip_rest` (бросить оставшиеся блоки прохода), `stop` (остановить макрос).
-
----
-
-## Журнал
-
-Внизу окна — журнал, куда пишется **каждое** выполненное действие с реальными параметрами:
-
-```
-Setup #1  Log 'setting up'
-Setup #2  Wait 120ms
-Loop #1  Key ctrl+c
-   - skipped (disabled): Wait 999ms
-Loop #2  Click 640,360 (left x2)
-Loop #3  Wait for image 'кнопка старт'
-   ! wait_image failed: ...
-Loop #4  Wait 600ms
-   took 0.6s
-```
-
-Пропущенные блоки объясняются (выключен / уже сработал по ONCE), блоки дольше 0.4 с отмечаются временем, развёртка циклов видна по нумерации. Та же лента пишется в `debug.log`.
-
----
-
-## Две фазы
-
-- **Setup** — выполняется один раз при старте.
-- **Loop** — повторяется, пока не нажат Stop (или заданное число раз в настройках).
-
----
-
-## Экраны
-
-**Build** — палитра блоков слева, две фазы справа. Блоки перетаскиваются из палитры и меняются местами мышью.
-
-**Record** — старт/стоп записи, счётчик событий вживую. После остановки показывается предпросмотр сконвертированных блоков — можно снять галочки с лишних и вставить в Setup или Loop, либо сохранить запись под именем.
-
-**Insert into Setup / Loop** кладёт в фазу **один** блок `Play Recording`, а не россыпь действий. Рядом с ним на строке — кнопка **Edit actions**: открывает список действий записи, где их можно править, переупорядочивать и удалять. Сырые события при этом сохраняются, поэтому «Reset to original» всегда возвращает то, что было записано на самом деле.
-
-Кнопка «Insert as separate blocks» оставлена для старого поведения — отмеченные галочками строки уходят в Loop по отдельности.
-
-У каждой сохранённой записи четыре действия:
-
-| | Что делает |
+| Group | Blocks |
 |---|---|
-| **Edit** | разбирает на отдельные блоки в предпросмотре — правь и вставляй выборочно |
-| **Use** | добавляет в Loop один блок `Play Recording`, проигрывающий запись целиком с её таймингом |
-| **▶** | проигрывает прямо сейчас, ничего не добавляя в макрос |
-| корзина | удаляет файл записи |
+| **Mouse** | Click · Move Mouse · Drag · Scroll |
+| **Keyboard** | Send Key · Type Text · Hold Key |
+| **Timing** | Wait (ms) · Wait Random |
+| **Vision** | Wait for Image · Click Image · Wait Image Gone · Wait for Color · Click Color · Wait for Text · Click Text · Read Text |
+| **Flow** | Loop Start / Loop End · Play Recording · Focus Target · Log Message |
+| **Notify** | Send Webhook |
 
-Движения мыши записываются (`record_mouse_move`) и воспроизводятся при проигрывании записи. В разбор на блоки они по умолчанию не попадают — включается галочкой на экране Record.
+Every block has **ONCE** (skip on later loop passes), **▶** (run just this block) and an enable/disable toggle. Hover anything for an explanation.
 
-Имена записей, макросов и картинок можно писать по-русски — сохраняются как есть.
+**Confidence** on the image, text and colour blocks is one 0–1 scale. For text a literal substring always counts as found; the threshold only gates fuzzy matching, because OCR routinely confuses a Latin `C` with a Cyrillic `С`.
 
-**Images** — захват кадра окна-цели, выделение прямоугольника мышью, сохранение в `Assets/<имя>/`. Одно имя может иметь несколько вариантов картинки — все проверяются при поиске. Есть кнопка «Test» с показом коэффициента совпадения.
+**On fail** decides what a Vision block does when it finds nothing: `continue`, `run blocks` (a nested fallback sequence with its own "then" — resume, restart the phase, restart the macro, or stop), `restart phase`, `skip rest` or `stop`.
 
-Зум: `−` / `%` / `+` / `Fit`, колесо и ctrl+колесо, 25–800 %. Координаты кропа всегда остаются в пикселях исходного кадра — независимо от зума и прокрутки. На мелком масштабе выделение неизбежно грубее (один экранный пиксель покрывает несколько исходных), для точной обрезки приблизь.
+## Two phases
 
-**Setup** — выбор окна-цели, хоткеи, глобальная задержка между действиями, порог совпадения картинок, health check.
+**Setup** runs once. **Loop** repeats until you press Stop, or for a set number of passes.
 
----
+## Screens
 
-## Хоткеи (по умолчанию)
+**Build** — palette on the left, the two phases on the right; drag to add and reorder.
 
-| Клавиша | Действие |
+**Record** — start/stop with a live event counter. Stopping shows the converted blocks; insert them into a phase as one `Play Recording` block (with an editor for the actions inside) or as separate rows. Saved recordings can be edited, inserted, played on the spot or deleted.
+
+**Images** — capture the target, drag a rectangle, save it under a name. One name can hold several variants; all are tried when searching. Zoom 25–800 % with `−`/`+`/`Fit`; plain wheel scrolls, ctrl+wheel zooms, middle-drag pans. Crop coordinates always stay in source-image pixels.
+
+**Setup** — target window, hotkeys, theme, language, action delay, Discord webhook, health check.
+
+## Hotkeys
+
+| Key | |
 |---|---|
-| F1 | Старт |
-| **F2** | **Стоп** |
-| F3 | Пауза / продолжить |
-| F4 | Запись вкл/выкл |
-| F8 | Захватить координату кликом |
+| F1 | Start |
+| **F2** | **Stop** |
+| F3 | Pause / resume |
+| F4 | Toggle recording |
+| F8 | Pick a coordinate by clicking |
 
-F2 привязан напрямую к Python, минуя JS, — Stop обязан срабатывать раньше любого зависшего обращения к интерфейсу.
+F2 is bound straight to Python rather than routed through the UI, so Stop wins over anything in flight.
 
----
+## Sharing
 
-## Структура
+**Export with images and recordings** writes a `.macrozip` holding the macro plus exactly the images and recordings it references — nothing else of yours. Import unpacks it, refusing anything that tries to write outside the Assets and Recordings folders, and keeps your existing files unless you ask it to replace them.
 
-```
-main.py              точка входа pywebview + класс Api (53 метода, все зовутся из JS)
-build_exe.py         сборка одного .exe через PyInstaller
-run.bat              запуск из исходников
+## Data
 
-core/
-  constants.py       BUNDLE_DIR (только чтение) vs APP_DIR (данные пользователя)
-  blocks.py          КАТАЛОГ БЛОКОВ — единственный источник правды
-  runner.py          исполнитель: Setup один раз, Loop по кругу, стек циклов
-  recorder.py        pynput-хуки → события → блоки
-  vision.py          cv2.matchTemplate, поиск по цвету
-  capture.py         mss + PrintWindow с самокорректирующимся переключателем
-  ocr.py             Windows.Media.Ocr, запасной pytesseract
-  window.py          Win32 ctypes: перечисление, геометрия, конвертация координат
-  mouse.py keyboard.py keys.py
-  _input_win.py _sendinput.py    сырой SendInput
-  settings.py templates.py jsonstore.py logger.py pacing.py
+Everything lives next to `main.py` (or the exe): `settings.json`, `debug.log`, `Templates/`, `Recordings/`, `Assets/`, `debug/`. None of it is tracked by git. `Assets/` is deliberately not bundled into the exe so the reference images stay editable.
 
-ui/
-  index.html style.css app.js    интерфейс, без фреймворков и сборки
-```
-
-Добавить новый тип блока = одна запись в `BLOCK_TYPES` (`core/blocks.py`) + один метод `_do_<type>` в `core/runner.py`. Интерфейс строит палитру и поля рядов **из каталога**, править его не нужно.
-
----
-
-## Где лежат данные
-
-Всё рядом с `main.py` (или рядом с `.exe` в собранной версии):
-
-```
-settings.json      настройки
-debug.log          лог
-Templates/         сохранённые макросы (.json)
-Recordings/        сохранённые записи (.json)
-Assets/<имя>/      эталонные картинки для поиска
-debug/             отладочные скриншоты
-```
-
-`Assets/` намеренно **не** упаковывается в exe: смысл в том, чтобы картинки можно было открыть, заменить и дополнить без пересборки.
-
----
-
-## Технические решения
-
-Каждое из них — реакция на конкретный способ молча сломаться.
-
-### Ввод
-
-**`SendInput`, а не `SetCursorPos`/`pyautogui`** — проходит через настоящий стек ввода, который слушают игры.
-
-**Скан-коды, а не VK** при отправке клавиш — так делает реальный драйвер клавиатуры.
-
-**`MOUSEEVENTF_VIRTUALDESK` обязателен** при абсолютных перемещениях. Без него Windows раскладывает диапазон 0–65535 только на основной монитор, и на мультимониторе клики молча уходят не туда.
-
-**Деление на `span - 1`, не на `span`** при нормализации координат: диапазон 0–65535 ложится на *центры* пикселей, иначе всё смещено к началу, а крайний правый пиксель недостижим.
-
-**`ord()` только для A–Z и 0–9.** Как универсальный запасной вариант он маппил пунктуацию в навигационные клавиши: `!` → `0x21` это Page Up, `%` → `0x25` это стрелка влево. Остальное разрешается через `VkKeyScanW` по активной раскладке.
-
-**Суррогатные пары для символов выше U+FFFF** — `wScan` это WORD, и эмодзи без разбиения на пару печатался как чужой глиф.
-
-**Отпускание в `finally`** везде, где что-то зажимается — включая обычный клик и тап. `SendInput` бросает исключение, когда ввод отклонён (окно с повышенными правами перехватило фокус, появился защищённый рабочий стол), и пропущенный `key_up` оставил бы клавишу физически нажатой до конца сессии.
-
-**Пейсинг один раз на серию кликов, не на каждый.** Глобальная задержка между двумя кликами двойного клика выталкивала их за системный интервал, и цель видела два независимых одиночных.
-
-### Зрение и захват
-
-**`c_void_p(-4)`** для DPI-контекста и псевдо-хендлов: голый Python `-1` приезжает в 64-битный слот как `0xFFFFFFFF` и вызов тихо проваливается.
-
-**`PatBlt(BLACKNESS)` перед `PrintWindow`** — свежий GDI-битмап не обнулён, и мусор из переиспользованного буфера прошёл бы проверку «кадр чёрный».
-
-**`result[~np.isfinite(result)] = -1`** после `matchTemplate` — нормализованный метод делит на локальную дисперсию, и однотонный участок даёт `inf`, который проходит любой порог как «уверенное совпадение».
-
-**Сначала содержимое окна, потом экран.** Снимок экрана перекрытого окна возвращает пиксели *перекрывающего* окна, и детектор чёрного кадра этого поймать не может в принципе. Захват содержимого либо работает, либо возвращает чёрное — а это отличимо.
-
-**Кэш шаблонов ключуется по `(mtime, size)`.** По одному пути — пересохранённая из Image Manager картинка игнорировалась до перезапуска, что читается как «новый кроп просто не работает».
-
-**Регион вне кадра возвращает `None`, а не обрезается.** Обрезка отдавала пиксели из другого места, при этом вызывающий прибавлял *необрезанное* начало координат — все координаты становились неверными.
-
-**`imread_unicode` / `imwrite_unicode`.** OpenCV отдаёт имя файла в C-рантайм байтами, поэтому `cv2.imwrite` с кириллическим именем **не пишет ничего** и возвращает False. Чтение и запись идут через `np.fromfile`/`imencode`, так что имена картинок можно писать по-русски.
-
-### Исполнение
-
-**Прерываемый сон** — ожидания спят кусочками по 80 мс и проверяют флаг остановки, поэтому Stop срабатывает **внутри** четырёхсекундной паузы, а не после неё.
-
-**Шлюз, понимающий паузу**, вместо голого события остановки в циклах опроса зрения. Иначе `Click Image` мог кликнуть в тот самый момент, когда нажата пауза, — а клик не отменишь.
-
-**Явная проверка на `None` вместо `or default`.** `params.get(k) or 8000` превращает законный `0` в значение по умолчанию: таймаут 0 значит «проверить один раз, не ждать».
-
-**Пропавшая цель останавливает запуск.** Молчаливый откат на экранные координаты продолжал бы кликать — просто в случайные места рабочего стола.
-
-**Отсутствующий файл картинки идёт через политику On fail**, а не улетает исключением: настроенный `stop` иначе молча превращался в `continue`.
-
-**Атомарная запись** (`tmp` + `fsync` + `os.replace`) для настроек, макросов и записей: `KeyboardInterrupt` посреди сохранения не оставит битый файл. Неудачная запись **сообщается**, а не глотается.
-
-### Запись действий
-
-**Физическая клавиша, а не символ раскладки.** pynput отдаёт `key.char` = `я` для физической клавиши Z — воспроизведение такого не даёт вообще ничего. Пишется VK, символ хранится отдельно только для склейки в `Type Text`.
-
-**Часы двигаются только вперёд.** Ветка `key_up` подставляла в расчёт паузы *старый* timestamp нажатия, `last_t` уезжал назад, и весь дальнейший тайминг раздувался.
-
-**Долгое нажатие становится `Hold Key`**, а не `Send Key`: у второго удержание — непрерываемый сон, и 30-секундная запись сделала бы Stop неотзывчивым на 30 секунд.
-
-**Потерянный `key_up` стоит одного нажатия, а не всех последующих.** Защита от автоповтора держала клавишу «открытой» навсегда.
-
-**Троттлинг движений (80 мс) выше минимального зазора (60 мс).** Иначе между движениями никогда не вставляется пауза и весь путь курсора воспроизводится мгновенно.
-
----
-
-## Тесты
+## Tests
 
 ```bash
-python -m pytest tests/ -v        # 126 тестов, без GUI и без синтетического ввода
-python tools/check_contract.py    # сверка каталога блоков, API и DOM-идентификаторов
+python -m pytest tests/ -q        # 301 tests, no GUI, no synthetic input
+python tools/check_contract.py    # catalog ↔ runner ↔ API ↔ DOM
 ```
 
-`tests/test_core.py` — единицы, `tests/test_runner.py` — семантика исполнения (циклы, политики отказа, пауза/стоп, освобождение клавиш), `tests/test_regressions.py` — по одному тесту на каждый найденный и починенный баг, названный по симптому.
-
-Интеграционные — открывают Блокнот и по-настоящему шлют в него ввод, потом читают текст обратно через `WM_GETTEXT`:
+Integration scripts drive a real Notepad and read the text back through `WM_GETTEXT`. They take over the mouse and keyboard while running:
 
 ```bash
-python tools/integration_notepad.py    # ввод, модификаторы, циклы, зрение, координаты
-python tools/integration_recorder.py   # запись → блоки → воспроизведение, полный круг
+python tools/integration_notepad.py
+python tools/integration_recorder.py
 ```
 
-Во время их работы не трогай мышь и клавиатуру.
+## Notable details
 
-`check_contract.py` проверяет то, что легко разъезжается молча: у каждого типа блока есть обработчик в раннере, обработчик читает ровно те параметры, что объявлены в каталоге, каждый `push_ui` имеет функцию-приёмник в JS, каждый вызов API существует, каждый `#id` из JS есть в HTML.
+Each of these is a fix for a specific way things silently broke.
 
----
+- **`SendInput`, not `SetCursorPos`/pyautogui** — it goes through the real input stack, which is what games listen to. Keys go as scancodes, like a real driver.
+- **`MOUSEEVENTF_VIRTUALDESK` is mandatory** on absolute moves: without it Windows maps the 0–65535 range onto the primary monitor only, and multi-monitor clicks land silently in the wrong place.
+- **`ord()` only for A–Z and 0–9.** As a general fallback it mapped punctuation onto navigation keys — `!` is `0x21`, which is Page Up. Everything else resolves through the active layout.
+- **1 ms timer resolution.** Windows' default granularity is 15.6 ms, so `sleep(0.001)` really sleeps ~15 ms and a finely sampled recording replays visibly late. Playback also schedules against one absolute start time, so an overshoot never accumulates.
+- **Raw mouse deltas via `WM_INPUT`.** When a game captures the cursor to turn the camera the pointer does not move, so position-based recording sees nothing happen. The hardware still reports deltas.
+- **Self-echo suppression.** Everything the app injects comes back through the same hooks; without filtering, recording while a macro plays captures the macro's own output.
+- **`result[~np.isfinite(result)] = -1`** after `matchTemplate`: the normalised method divides by local variance, so a flat patch yields `inf`, which passes any threshold as a confident match.
+- **`PatBlt(BLACKNESS)` before `PrintWindow`** — a fresh GDI bitmap is not zeroed, and recycled framebuffer garbage would pass the "is the frame black?" check.
+- **Window contents before screen grab.** A screen grab of an occluded window returns the *covering* window's pixels, which no black-frame check can detect.
+- **`imread_unicode` / `imwrite_unicode`.** OpenCV passes filenames to the C runtime as bytes, so `cv2.imwrite` with a Cyrillic name writes nothing and reports success.
+- **Frameless move and resize are handed to Windows** via `WM_NCLBUTTONDOWN`. Doing that loop in JavaScript chases the pointer a frame behind and loses snapping and multi-monitor edges.
+- **Released in `finally`, everywhere.** `SendInput` raises when injection is refused (an elevated window takes focus, the secure desktop appears), and a skipped key-up leaves the key physically held.
+- **Interruptible waits.** Sleeps are sliced and re-check the stop flag, so Stop lands *inside* a four-second wait rather than after it.
+- **Atomic writes** (`tmp` + `fsync` + `os.replace`) for settings, macros and recordings.
 
-## Сборка exe
+## Limitations
+
+Windows only. Display scaling must be **100 %** — the health check warns otherwise. Games whose anti-cheat blocks synthetic input will not work, and that is not something to work around. Some hardware-accelerated apps ignore `PrintWindow`; capture falls back to a screen grab, which needs the window visible.
+
+## Building an exe
 
 ```bash
 pip install pyinstaller
 python build_exe.py
 ```
 
-Результат в `dist/`. `Assets/`, `Templates/` и `Recordings/` не упаковываются — это данные пользователя, они должны лежать рядом с exe.
-
----
-
-## Ограничения
-
-- Только Windows. Слой ввода и окон построен на Win32.
-- Масштаб дисплея должен быть **100%**. При другом координаты поплывут; health check это проверяет и предупреждает.
-- Игры с античитом, блокирующим синтетический ввод, работать не будут — это не обходится и обходить не нужно.
-- Некоторые приложения с аппаратным ускорением не отвечают на `PrintWindow`; захват автоматически откатывается на снимок экрана, но тогда окно должно быть видимым.
+Output in `dist/`. User data is not bundled — the app creates the folders beside the exe on first run.

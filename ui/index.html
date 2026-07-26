@@ -70,6 +70,15 @@
     <symbol id="i-bell" viewBox="0 0 14 14">
       <path d="M7 1.6a3.5 3.5 0 0 0-3.5 3.5c0 3-1.3 3.9-1.3 3.9h9.6s-1.3-.9-1.3-3.9A3.5 3.5 0 0 0 7 1.6zM5.8 11a1.3 1.3 0 0 0 2.4 0"/>
     </symbol>
+    <symbol id="i-box" viewBox="0 0 14 14">
+      <path d="M7 1.4L12.4 4v6L7 12.6 1.6 10V4z"/><path d="M1.6 4L7 6.6 12.4 4M7 6.6v6"/>
+    </symbol>
+    <symbol id="i-down" viewBox="0 0 14 14">
+      <path d="M7 1.8v7.4M4 6.4l3 3 3-3M2 11.8h10"/>
+    </symbol>
+    <symbol id="i-up" viewBox="0 0 14 14">
+      <path d="M7 9.6V2.2M4 5.2l3-3 3 3M2 11.8h10"/>
+    </symbol>
   </defs>
 </svg>
 
@@ -95,16 +104,16 @@
       <span class="ver" id="appVersion">—</span>
     </div>
 
-    <div class="target-chip" id="targetChip" title="Click to open the target picker">
+    <div class="target-chip" id="targetChip" data-i18n-title="tip_target_chip" title="Click to open the target picker">
       <span class="dot dot-off" id="targetDot"></span>
-      <span class="target-title" id="targetTitle">No target selected</span>
+      <span class="target-title" id="targetTitle" data-i18n="target_none">No target selected</span>
     </div>
 
     <div class="titlebar-right">
       <span class="rec-pill hidden" id="recPill"><span class="rec-dot"></span>REC</span>
-      <button class="winbtn" id="btnMin" title="Minimize"><svg class="ic"><use href="#i-min"></use></svg></button>
-      <button class="winbtn" id="btnMax" title="Maximize"><svg class="ic"><use href="#i-max" id="btnMaxIcon"></use></svg></button>
-      <button class="winbtn winbtn-close" id="btnClose" title="Close"><svg class="ic"><use href="#i-close"></use></svg></button>
+      <button class="winbtn" id="btnMin" data-i18n-title="win_minimize" title="Minimize"><svg class="ic"><use href="#i-min"></use></svg></button>
+      <button class="winbtn" id="btnMax" data-i18n-title="win_maximize" title="Maximize"><svg class="ic"><use href="#i-max" id="btnMaxIcon"></use></svg></button>
+      <button class="winbtn winbtn-close" id="btnClose" data-i18n-title="win_close" title="Close"><svg class="ic"><use href="#i-close"></use></svg></button>
     </div>
   </header>
 
@@ -112,17 +121,17 @@
   <div class="body">
 
     <nav class="rail" id="rail">
-      <button class="railbtn active" data-screen="builder" title="Builder">
-        <svg class="ic"><use href="#i-builder"></use></svg><span>Build</span>
+      <button class="railbtn active" data-screen="builder" data-i18n-title="nav_builder" title="Builder">
+        <svg class="ic"><use href="#i-builder"></use></svg><span data-i18n="nav_build">Build</span>
       </button>
-      <button class="railbtn" data-screen="record" title="Record">
-        <svg class="ic"><use href="#i-record"></use></svg><span>Record</span>
+      <button class="railbtn" data-screen="record" data-i18n-title="nav_record" title="Record">
+        <svg class="ic"><use href="#i-record"></use></svg><span data-i18n="nav_record">Record</span>
       </button>
-      <button class="railbtn" data-screen="images" title="Images">
-        <svg class="ic"><use href="#i-images"></use></svg><span>Images</span>
+      <button class="railbtn" data-screen="images" data-i18n-title="nav_images" title="Images">
+        <svg class="ic"><use href="#i-images"></use></svg><span data-i18n="nav_images">Images</span>
       </button>
-      <button class="railbtn" data-screen="settings" title="Settings">
-        <svg class="ic"><use href="#i-settings"></use></svg><span>Setup</span>
+      <button class="railbtn" data-screen="settings" data-i18n-title="nav_settings" title="Settings">
+        <svg class="ic"><use href="#i-settings"></use></svg><span data-i18n="nav_setup">Setup</span>
       </button>
     </nav>
 
@@ -131,24 +140,30 @@
       <!-- ------------------------------------------------------- BUILDER -->
       <section class="screen screen-builder active" id="screen-builder">
         <aside class="palette">
-          <div class="section-label">Block palette</div>
+          <div class="section-label" data-i18n="palette_title">Block palette</div>
           <div class="palette-groups" id="paletteGroups"></div>
-          <div class="palette-hint">Drag a block into a phase, or click it to append.</div>
+          <div class="palette-hint" data-i18n="palette_hint">Drag a block into a phase, or click it to append.</div>
         </aside>
 
         <div class="builder-main">
           <div class="toolbar">
-            <input id="macroName" class="inp inp-name" placeholder="Untitled macro" spellcheck="false" autocomplete="off">
-            <button class="btn btn-primary" id="btnSaveMacro">Save</button>
+            <input id="macroName" class="inp inp-name" data-i18n-ph="macro_name_ph" placeholder="Untitled macro" spellcheck="false" autocomplete="off">
+            <button class="btn btn-primary" id="btnSaveMacro" data-i18n="btn_save">Save</button>
             <div class="dropdown">
-              <button class="btn" id="btnLoadMacro">Load <svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
+              <button class="btn" id="btnLoadMacro"><span data-i18n="btn_load">Load</span> <svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
               <div class="menu hidden" id="macroMenu"></div>
             </div>
-            <button class="btn" id="btnNewMacro">New</button>
-            <button class="btn btn-ghost-danger" id="btnDeleteMacro">Delete</button>
+            <button class="btn" id="btnNewMacro" data-i18n="btn_new">New</button>
+            <button class="btn btn-ghost-danger" id="btnDeleteMacro" data-i18n="btn_delete">Delete</button>
             <span class="flex-spacer"></span>
-            <button class="btn" id="btnImportMacro">Import</button>
-            <button class="btn" id="btnExportMacro">Export</button>
+            <div class="dropdown">
+              <button class="btn" id="btnImportMacro"><span data-i18n="btn_import">Import</span> <svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
+              <div class="menu menu-right hidden" id="importMenu"></div>
+            </div>
+            <div class="dropdown">
+              <button class="btn" id="btnExportMacro"><span data-i18n="btn_export">Export</span> <svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
+              <div class="menu menu-right hidden" id="exportMenu"></div>
+            </div>
             <span class="save-hint" id="saveHint"></span>
           </div>
           <div class="phases" id="phases"></div>
@@ -159,52 +174,52 @@
       <section class="screen screen-record" id="screen-record">
         <div class="rec-top">
           <div class="card rec-card">
-            <div class="section-label">Recorder</div>
+            <div class="section-label" data-i18n="rec_title">Recorder</div>
             <button class="rec-btn" id="btnRecToggle">
               <span class="rec-btn-dot"></span>
-              <span class="rec-btn-label" id="recBtnLabel">Start Recording</span>
+              <span class="rec-btn-label" id="recBtnLabel" data-i18n="rec_start">Start Recording</span>
             </button>
             <div class="rec-counter">
               <span class="rec-count" id="recCount">0</span>
-              <span class="rec-count-label">events captured</span>
+              <span class="rec-count-label" data-i18n="rec_events">events captured</span>
             </div>
             <div class="rec-opts">
               <label class="switch-row">
                 <span class="switch"><input type="checkbox" id="optRecordMove"><span class="slider"></span></span>
-                <span>Record mouse movement</span>
+                <span data-i18n="opt_record_move">Record mouse movement</span>
               </label>
               <label class="field">
-                <span class="flab">Minimum gap (ms)</span>
+                <span class="flab" data-i18n="opt_min_gap">Minimum gap (ms)</span>
                 <input class="inp inp-num" type="number" id="optMinGap" value="60" min="0" step="10">
               </label>
-              <button class="btn btn-sm" id="btnRecCancel">Discard pending</button>
+              <button class="btn btn-sm" id="btnRecCancel" data-i18n="rec_discard">Discard pending</button>
             </div>
-            <div class="hint">Hotkey rebind is on the Setup screen. The recorder never captures your own hotkeys.</div>
+            <div class="hint" data-i18n="rec_hotkey_hint">Hotkey rebind is on the Setup screen. The recorder never captures your own hotkeys.</div>
           </div>
 
           <div class="card saved-card">
-            <div class="section-label">Saved recordings</div>
+            <div class="section-label" data-i18n="rec_saved">Saved recordings</div>
             <div class="rec-list" id="recordingsList"></div>
           </div>
         </div>
 
         <div class="card preview-card">
           <div class="card-head">
-            <div class="section-label">Converted blocks</div>
+            <div class="section-label" data-i18n="rec_converted">Converted blocks</div>
             <div class="card-head-actions">
-              <button class="btn btn-sm" id="btnPreviewAll">Select all</button>
-              <button class="btn btn-sm" id="btnPreviewNone">Select none</button>
+              <button class="btn btn-sm" id="btnPreviewAll" data-i18n="rec_select_all">Select all</button>
+              <button class="btn btn-sm" id="btnPreviewNone" data-i18n="rec_select_none">Select none</button>
               <span class="flex-spacer"></span>
-              <button class="btn btn-sm" id="btnInsertSetup">Insert into Setup</button>
-              <button class="btn btn-sm btn-primary" id="btnInsertLoop">Insert into Loop</button>
-              <button class="btn btn-xs btn-secondary" id="btnInsertSeparate">Insert as separate blocks</button>
-              <button class="btn btn-sm" id="btnSaveRecording">Save as recording</button>
+              <button class="btn btn-sm" id="btnInsertSetup" data-i18n="rec_insert_setup">Insert into Setup</button>
+              <button class="btn btn-sm btn-primary" id="btnInsertLoop" data-i18n="rec_insert_loop">Insert into Loop</button>
+              <button class="btn btn-xs btn-secondary" id="btnInsertSeparate" data-i18n="rec_insert_separate">Insert as separate blocks</button>
+              <button class="btn btn-sm" id="btnSaveRecording" data-i18n="rec_save_as">Save as recording</button>
             </div>
           </div>
           <div class="preview-list" id="previewList">
-            <div class="empty">Nothing recorded yet. Press Start Recording, do the actions, then stop.</div>
+            <div class="empty" data-i18n="rec_empty">Nothing recorded yet. Press Start Recording, do the actions, then stop.</div>
           </div>
-          <div class="hint preview-hint">
+          <div class="hint preview-hint" data-i18n="rec_preview_hint">
             The tick boxes only affect “Insert as separate blocks” — the two Insert buttons
             always add one Play Recording block for the whole take.
           </div>
@@ -215,59 +230,59 @@
       <section class="screen screen-images" id="screen-images">
         <div class="card">
           <div class="card-head">
-            <div class="section-label">Image manager</div>
+            <div class="section-label" data-i18n="img_manager">Image manager</div>
             <div class="card-head-actions">
-              <button class="btn btn-sm btn-primary" id="btnCaptureTarget"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> Capture target</button>
-              <button class="btn btn-sm" id="btnImgExpand"><svg class="ic ic-xs"><use href="#i-expand"></use></svg> Pick in large view</button>
-              <span class="hint" id="captureHint">Capture opens the large view — drag with the left button to crop, middle-drag to pan.</span>
+              <button class="btn btn-sm btn-primary" id="btnCaptureTarget"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> <span data-i18n="img_capture">Capture target</span></button>
+              <button class="btn btn-sm" id="btnImgExpand"><svg class="ic ic-xs"><use href="#i-expand"></use></svg> <span data-i18n="img_pick_large">Pick in large view</span></button>
+              <span class="hint" id="captureHint" data-i18n="img_capture_hint">Capture opens the large view — drag with the left button to crop, middle-drag to pan.</span>
             </div>
           </div>
           <div class="capture-wrap" id="imgCaptureWrap">
             <div class="canvas-col" id="imgCanvasCol">
               <div class="zoombar">
-                <button class="zoombtn" id="btnImgZoomOut" title="Zoom out">−</button>
+                <button class="zoombtn" id="btnImgZoomOut" data-i18n-title="zoom_out" title="Zoom out">−</button>
                 <span class="zoom-readout" id="imgZoomReadout">100%</span>
-                <button class="zoombtn" id="btnImgZoomIn" title="Zoom in">+</button>
-                <button class="btn btn-sm" id="btnImgZoomFit">Fit</button>
+                <button class="zoombtn" id="btnImgZoomIn" data-i18n-title="zoom_in" title="Zoom in">+</button>
+                <button class="btn btn-sm" id="btnImgZoomFit" data-i18n="zoom_fit">Fit</button>
                 <span class="flex-spacer"></span>
-                <span class="hint zoom-hint">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms · middle-drag pans.</span>
+                <span class="hint zoom-hint" data-i18n="zoom_hint_pan">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms · middle-drag pans.</span>
               </div>
               <div class="canvas-holder" id="imgCanvasHolder">
                 <div class="canvas-stage" id="imgCanvasStage">
                   <canvas id="imgCanvas" width="10" height="10"></canvas>
                   <div class="sel-box hidden" id="imgSelBox"></div>
                 </div>
-                <div class="canvas-empty" id="imgCanvasEmpty">No capture yet</div>
+                <div class="canvas-empty" id="imgCanvasEmpty" data-i18n="img_no_capture">No capture yet</div>
               </div>
             </div>
             <div class="capture-side">
               <div class="readout" id="imgSelReadout">x 0 · y 0 · 0 × 0</div>
               <label class="field field-block">
-                <span class="flab">Image name</span>
-                <input class="inp" id="imgName" placeholder="e.g. play_button" spellcheck="false">
+                <span class="flab" data-i18n="img_name">Image name</span>
+                <input class="inp" id="imgName" data-i18n-ph="img_name_ph" placeholder="e.g. play_button" spellcheck="false">
               </label>
-              <button class="btn btn-primary btn-wide" id="btnSaveNew">Save as new</button>
-              <button class="btn btn-wide" id="btnSaveVariant">Save as variant</button>
-              <button class="btn btn-wide" id="btnOpenAssets2">Open Assets folder</button>
-              <div class="hint">Variants let one name match several looks (hover, pressed, different scale).</div>
+              <button class="btn btn-primary btn-wide" id="btnSaveNew" data-i18n="img_save_new">Save as new</button>
+              <button class="btn btn-wide" id="btnSaveVariant" data-i18n="img_save_variant">Save as variant</button>
+              <button class="btn btn-wide" id="btnOpenAssets2" data-i18n="img_open_assets">Open Assets folder</button>
+              <div class="hint" data-i18n="img_variant_hint">Variants let one name match several looks (hover, pressed, different scale).</div>
             </div>
           </div>
         </div>
 
         <div class="card">
           <div class="card-head">
-            <div class="section-label">Templates</div>
+            <div class="section-label" data-i18n="img_templates">Templates</div>
             <div class="card-head-actions">
               <div class="conf-row" id="confRow">
-                <span class="flab" id="confLabel">Test confidence</span>
+                <span class="flab" id="confLabel" data-i18n="img_test_conf">Test confidence</span>
                 <input type="range" id="setThreshold" min="0.5" max="1" step="0.01" value="0.88">
                 <span class="sval" id="valThreshold">0.88</span>
               </div>
               <span class="flex-spacer"></span>
-              <button class="btn btn-sm" id="btnRefreshTemplates"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> Refresh</button>
+              <button class="btn btn-sm" id="btnRefreshTemplates"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> <span data-i18n="btn_refresh">Refresh</span></button>
             </div>
           </div>
-          <div class="hint conf-hint">
+          <div class="hint conf-hint" data-i18n="img_conf_hint">
             Used by the Test buttons below, and as the starting confidence for newly added Vision blocks.
             Blocks you already built keep their own value.
           </div>
@@ -281,120 +296,123 @@
 
           <div class="card">
             <div class="card-head">
-              <div class="section-label">Target window</div>
+              <div class="section-label" data-i18n="set_target">Target window</div>
               <div class="card-head-actions">
-                <span class="attach-ind" id="attachInd"><span class="dot dot-off"></span><span>not attached</span></span>
-                <button class="btn btn-sm" id="btnRefreshWindows"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> Refresh</button>
+                <span class="attach-ind" id="attachInd"><span class="dot dot-off"></span><span data-i18n="set_not_attached">not attached</span></span>
+                <button class="btn btn-sm" id="btnRefreshWindows"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> <span data-i18n="btn_refresh">Refresh</span></button>
               </div>
             </div>
             <div class="target-tools">
-              <input class="inp" id="winSearch" placeholder="Filter by title or process..." spellcheck="false">
-              <button class="btn btn-sm" id="btnUseScreen">Use whole screen</button>
-              <button class="btn btn-sm" id="btnFocusTarget">Focus target</button>
+              <input class="inp" id="winSearch" data-i18n-ph="set_filter_ph" placeholder="Filter by title or process..." spellcheck="false">
+              <button class="btn btn-sm" id="btnUseScreen" data-i18n="set_use_screen">Use whole screen</button>
+              <button class="btn btn-sm" id="btnFocusTarget" data-i18n="set_focus_target">Focus target</button>
             </div>
             <div class="win-list" id="winList"></div>
           </div>
 
           <div class="card">
-            <div class="section-label">Hotkeys</div>
+            <div class="section-label" data-i18n="set_hotkeys">Hotkeys</div>
             <div class="hotkey-grid" id="hotkeyGrid"></div>
-            <div class="hint">Click a key, then press the key you want. Hotkeys are global.</div>
+            <div class="hint" data-i18n="set_hotkeys_hint">Click a key, then press the key you want. Hotkeys are global.</div>
           </div>
 
           <div class="card">
-            <div class="section-label">Execution</div>
+            <div class="section-label" data-i18n="set_execution">Execution</div>
             <div class="setting-rows">
               <div class="setting-row">
-                <span class="slabel">Action delay</span>
+                <span class="slabel" data-i18n="set_action_delay">Action delay</span>
                 <input type="range" id="setActionDelay" min="0" max="2000" step="10" value="0">
                 <span class="sval" id="valActionDelay">0 ms</span>
               </div>
               <label class="switch-row">
                 <span class="switch"><input type="checkbox" id="setRecordMove"><span class="slider"></span></span>
-                <span>Record mouse movement</span>
+                <span data-i18n="opt_record_move">Record mouse movement</span>
               </label>
               <label class="switch-row">
                 <span class="switch"><input type="checkbox" id="setLoopForever"><span class="slider"></span></span>
-                <span>Loop forever</span>
+                <span data-i18n="set_loop_forever">Loop forever</span>
               </label>
               <div class="setting-row">
-                <span class="slabel">Loop count</span>
+                <span class="slabel" data-i18n="set_loop_count">Loop count</span>
                 <input class="inp inp-num" type="number" id="setLoopCount" min="1" step="1" value="1">
                 <span class="sval"></span>
               </div>
-              <div class="hint">
+              <div class="hint" data-i18n="set_conf_moved">
                 Match confidence now lives on the Images screen as “Test confidence”, next to the Test buttons it drives.
               </div>
             </div>
           </div>
 
           <div class="card">
-            <div class="section-label">Appearance</div>
-            <div class="hint theme-hint">Pick a theme. It is applied instantly and remembered.</div>
+            <div class="section-label" data-i18n="set_appearance">Appearance</div>
+            <div class="hint theme-hint" data-i18n="set_theme_hint">Pick a theme. It is applied instantly and remembered.</div>
             <div class="theme-grid" id="themeGrid"></div>
+            <div class="section-label lang-label" data-i18n="set_language">Language</div>
+            <div class="hint theme-hint" data-i18n="set_language_hint">Changes the interface and the block help text straight away.</div>
+            <div class="theme-grid lang-grid" id="langGrid"></div>
           </div>
 
           <div class="card" id="webhookCard">
             <div class="card-head">
-              <div class="section-label">Discord webhook</div>
+              <div class="section-label" data-i18n="hook_title">Discord webhook</div>
               <div class="card-head-actions">
-                <span class="attach-ind" id="hookInd"><span class="dot dot-off"></span><span>not configured</span></span>
+                <span class="attach-ind" id="hookInd"><span class="dot dot-off"></span><span data-i18n="hook_not_configured">not configured</span></span>
               </div>
             </div>
 
             <div class="hook-state" id="hookState">
               <span class="hook-state-dot"></span>
-              <span id="hookStateText">Sending is off — nothing is ever sent to Discord.</span>
+              <span id="hookStateText" data-i18n="hook_state_off">Sending is OFF — nothing is ever sent to Discord, not even by a Send Webhook block.</span>
             </div>
 
             <div class="setting-rows hook-rows">
               <label class="switch-row">
                 <span class="switch"><input type="checkbox" id="hookEnabled"><span class="slider"></span></span>
-                <span>Enable sending</span>
+                <span data-i18n="hook_enable">Enable sending</span>
               </label>
 
               <div class="hook-url-row">
-                <span class="flab">Saved URL</span>
-                <span class="readout hook-masked" id="hookMasked">no URL saved</span>
+                <span class="flab" data-i18n="hook_saved_url">Saved URL</span>
+                <span class="readout hook-masked" id="hookMasked" data-i18n="hook_no_url">no URL saved</span>
               </div>
 
               <label class="field field-block">
-                <span class="flab">New webhook URL</span>
+                <span class="flab" data-i18n="hook_new_url">New webhook URL</span>
                 <input class="inp" id="hookUrl" type="password" autocomplete="off" spellcheck="false"
                        placeholder="https://discord.com/api/webhooks/...">
               </label>
 
               <label class="field field-block">
-                <span class="flab">Bot name</span>
+                <span class="flab" data-i18n="hook_bot_name">Bot name</span>
                 <input class="inp" id="hookUser" spellcheck="false" placeholder="Macro Studio">
               </label>
 
               <div class="hook-actions">
-                <button class="btn btn-sm btn-primary" id="btnHookSave">Save URL</button>
-                <button class="btn btn-sm" id="btnHookTest">Send test message</button>
+                <button class="btn btn-sm btn-primary" id="btnHookSave" data-i18n="hook_save_url">Save URL</button>
+                <button class="btn btn-sm" id="btnHookTest" data-i18n="hook_test">Send test message</button>
                 <span class="flex-spacer"></span>
-                <button class="btn btn-sm btn-ghost-danger" id="btnHookClear">Remove URL</button>
+                <button class="btn btn-sm btn-ghost-danger" id="btnHookClear" data-i18n="hook_remove">Remove URL</button>
               </div>
-              <div class="hint" id="hookHint">The URL is a secret: once saved it never leaves the app again, only a masked form is shown.</div>
+              <div class="hint" id="hookHint" data-i18n="hook_secret_hint">The URL is a secret: once saved it never leaves the app again, only a masked form is shown.</div>
             </div>
           </div>
 
           <div class="card">
             <div class="card-head">
-              <div class="section-label">Diagnostics</div>
+              <div class="section-label" data-i18n="diag_title">Diagnostics</div>
               <div class="card-head-actions">
-                <button class="btn btn-sm btn-primary" id="btnHealth">Run health check</button>
+                <button class="btn btn-sm btn-primary" id="btnHealth" data-i18n="diag_run">Run health check</button>
               </div>
             </div>
             <div class="health-list" id="healthList">
-              <div class="empty">Run the check to verify capture, input and OCR.</div>
+              <div class="empty" data-i18n="diag_empty">Run the check to verify capture, input and OCR.</div>
             </div>
             <div class="env-row" id="envRow"></div>
             <div class="card-head-actions folder-row">
-              <button class="btn btn-sm" id="btnOpenData"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> Data folder</button>
-              <button class="btn btn-sm" id="btnOpenAssets"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> Assets folder</button>
+              <button class="btn btn-sm" id="btnOpenData"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> <span data-i18n="diag_data_folder">Data folder</span></button>
+              <button class="btn btn-sm" id="btnOpenAssets"><svg class="ic ic-xs"><use href="#i-folder"></use></svg> <span data-i18n="diag_assets_folder">Assets folder</span></button>
               <span class="flex-spacer"></span>
-              <button class="btn btn-sm btn-ghost-danger" id="btnResetSettings">Reset settings</button>
+              <button class="btn btn-sm btn-ghost-danger" id="btnResetSettings" data-i18n="diag_reset">Reset settings</button>
             </div>
           </div>
 
@@ -408,23 +426,23 @@
   <div class="logpanel collapsed" id="logPanel">
     <div class="log-head" id="logHead">
       <button class="log-toggle" id="btnLogToggle"><svg class="ic ic-xs"><use href="#i-chev"></use></svg></button>
-      <span class="section-label">Activity log</span>
+      <span class="section-label" data-i18n="log_title">Activity log</span>
       <span class="log-last" id="logLast"></span>
       <span class="flex-spacer"></span>
-      <button class="btn btn-sm" id="btnClearLogs">Clear</button>
+      <button class="btn btn-sm" id="btnClearLogs" data-i18n="log_clear">Clear</button>
     </div>
     <div class="log-body" id="logBody"></div>
   </div>
 
   <!-- ====================================================== control bar -->
   <footer class="controlbar">
-    <button class="cbtn cbtn-start" id="btnStart"><svg class="ic ic-sm"><use href="#i-play"></use></svg><span>Start</span></button>
+    <button class="cbtn cbtn-start" id="btnStart"><svg class="ic ic-sm"><use href="#i-play"></use></svg><span data-i18n="ctl_start">Start</span></button>
     <button class="cbtn" id="btnPause" disabled><svg class="ic ic-sm"><use href="#i-pause"></use></svg><span>Pause</span></button>
-    <button class="cbtn cbtn-stop" id="btnStop" disabled><svg class="ic ic-sm"><use href="#i-stop"></use></svg><span>Stop</span></button>
+    <button class="cbtn cbtn-stop" id="btnStop" disabled><svg class="ic ic-sm"><use href="#i-stop"></use></svg><span data-i18n="ctl_stop">Stop</span></button>
 
     <div class="status-readout">
       <span class="run-dot" id="runDot"></span>
-      <span class="status-action" id="statusAction">Idle</span>
+      <span class="status-action" id="statusAction" data-i18n="ctl_idle">Idle</span>
       <span class="status-sep"></span>
       <span class="status-loop" id="statusLoop">loop 0</span>
     </div>
@@ -438,41 +456,41 @@
 <div class="overlay hidden" id="pickOverlay">
   <div class="pick-card">
     <div class="pick-ring"></div>
-    <div class="pick-title" id="pickTitle">Click anywhere to capture a coordinate</div>
-    <div class="pick-sub">The next left click anywhere on screen is captured. <span id="pickTimer">30</span>s left.</div>
+    <div class="pick-title" id="pickTitle" data-i18n="pick_point">Click anywhere to capture a coordinate</div>
+    <div class="pick-sub"><span data-i18n="pick_sub">The next left click anywhere on screen is captured.</span> <span id="pickTimer">30</span><span data-i18n="pick_left">s left.</span></div>
   </div>
 </div>
 
 <div class="overlay hidden" id="regionModal">
   <div class="modal modal-huge">
     <div class="modal-head">
-      <span class="section-label">Select region</span>
+      <span class="section-label" data-i18n="region_title">Select region</span>
       <span class="readout" id="regionReadout">x 0 · y 0 · 0 × 0</span>
       <span class="flex-spacer"></span>
-      <button class="iconbtn" id="btnRegionClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="iconbtn" id="btnRegionClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body modal-body-canvas">
       <div class="zoombar">
-        <button class="zoombtn" id="btnRegionZoomOut" title="Zoom out">−</button>
+        <button class="zoombtn" id="btnRegionZoomOut" data-i18n-title="zoom_out" title="Zoom out">−</button>
         <span class="zoom-readout" id="regionZoomReadout">100%</span>
-        <button class="zoombtn" id="btnRegionZoomIn" title="Zoom in">+</button>
-        <button class="btn btn-sm" id="btnRegionZoomFit">Fit</button>
+        <button class="zoombtn" id="btnRegionZoomIn" data-i18n-title="zoom_in" title="Zoom in">+</button>
+        <button class="btn btn-sm" id="btnRegionZoomFit" data-i18n="zoom_fit">Fit</button>
         <span class="flex-spacer"></span>
-        <span class="hint zoom-hint">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms.</span>
+        <span class="hint zoom-hint" data-i18n="zoom_hint_pan">Wheel scrolls · shift+wheel sideways · ctrl+wheel zooms · middle-drag pans.</span>
       </div>
       <div class="canvas-holder" id="regionCanvasHolder">
         <div class="canvas-stage" id="regionCanvasStage">
           <canvas id="regionCanvas" width="10" height="10"></canvas>
           <div class="sel-box hidden" id="regionSelBox"></div>
         </div>
-        <div class="canvas-empty" id="regionCanvasEmpty">Capturing target...</div>
+        <div class="canvas-empty" id="regionCanvasEmpty" data-i18n="region_capturing">Capturing target...</div>
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn" id="btnRegionClear">Clear region</button>
+      <button class="btn" id="btnRegionClear" data-i18n="region_clear">Clear region</button>
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnRegionCancel">Cancel</button>
-      <button class="btn btn-primary" id="btnRegionApply">Use region</button>
+      <button class="btn" id="btnRegionCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" id="btnRegionApply" data-i18n="region_apply">Use region</button>
     </div>
   </div>
 </div>
@@ -482,25 +500,25 @@
 <div class="overlay hidden" id="bigViewModal">
   <div class="modal modal-huge">
     <div class="modal-head">
-      <span class="section-label" id="bigViewTitle">Crop image — large view</span>
+      <span class="section-label" id="bigViewTitle" data-i18n="big_title">Crop image — large view</span>
       <span class="reshoot-tag hidden" id="bigViewTag"></span>
       <span class="readout" id="bigViewReadout">x 0 · y 0 · 0 × 0</span>
       <span class="flex-spacer"></span>
-      <button class="btn btn-sm" id="btnBigViewReshoot"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> Re-capture</button>
-      <button class="iconbtn" id="btnBigViewClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="btn btn-sm" id="btnBigViewReshoot"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> <span data-i18n="big_recapture">Re-capture</span></button>
+      <button class="iconbtn" id="btnBigViewClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body modal-body-canvas" id="bigViewSlot"></div>
     <div class="modal-foot bigview-foot">
       <label class="field bigview-name">
-        <span class="flab">Image name</span>
-        <input class="inp inp-sm" id="bigViewName" placeholder="e.g. play_button" spellcheck="false" autocomplete="off">
+        <span class="flab" data-i18n="img_name">Image name</span>
+        <input class="inp inp-sm" id="bigViewName" data-i18n-ph="img_name_ph" placeholder="e.g. play_button" spellcheck="false" autocomplete="off">
       </label>
       <span class="hint bigview-hint" id="bigViewHint">Left-drag crops · middle-drag pans · ctrl+wheel zooms.</span>
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnBigViewClear">Clear selection</button>
+      <button class="btn" id="btnBigViewClear" data-i18n="big_clear_sel">Clear selection</button>
       <button class="btn" id="btnBigViewVariant">Save as variant</button>
       <button class="btn btn-primary" id="btnBigViewSave">Save as new</button>
-      <button class="btn btn-secondary" id="btnBigViewDone">Done</button>
+      <button class="btn btn-secondary" id="btnBigViewDone" data-i18n="btn_done">Done</button>
     </div>
   </div>
 </div>
@@ -509,20 +527,20 @@
 <div class="overlay hidden" id="tplPickModal">
   <div class="modal modal-wide">
     <div class="modal-head">
-      <span class="section-label">Choose a saved image</span>
-      <input class="inp inp-sm tplpick-filter" id="tplPickFilter" placeholder="Filter by name…" spellcheck="false" autocomplete="off">
+      <span class="section-label" data-i18n="tplpick_title">Choose a saved image</span>
+      <input class="inp inp-sm tplpick-filter" id="tplPickFilter" data-i18n-ph="tplpick_filter_ph" placeholder="Filter by name…" spellcheck="false" autocomplete="off">
       <span class="readout" id="tplPickCurrent">none</span>
       <span class="flex-spacer"></span>
-      <button class="iconbtn" id="btnTplPickClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="iconbtn" id="btnTplPickClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body">
       <div class="tplpick-grid" id="tplPickGrid"></div>
     </div>
     <div class="modal-foot">
-      <button class="btn" id="btnTplPickNew"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> ＋ Capture new</button>
-      <button class="btn btn-ghost-danger" id="btnTplPickNone">Use no image</button>
+      <button class="btn" id="btnTplPickNew"><svg class="ic ic-xs"><use href="#i-camera"></use></svg> <span data-i18n="tplpick_new">＋ Capture new</span></button>
+      <button class="btn btn-ghost-danger" id="btnTplPickNone" data-i18n="tplpick_none">Use no image</button>
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnTplPickCancel">Cancel</button>
+      <button class="btn" id="btnTplPickCancel" data-i18n="btn_cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -530,26 +548,26 @@
 <div class="overlay hidden" id="blocksEditModal">
   <div class="modal modal-huge">
     <div class="modal-head">
-      <span class="section-label" id="blocksEditTitle">Fallback blocks</span>
+      <span class="section-label" id="blocksEditTitle" data-i18n="blocks_edit_title">Fallback blocks</span>
       <span class="readout" id="blocksEditSub">—</span>
       <span class="flex-spacer"></span>
-      <button class="iconbtn" id="btnBlocksEditClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="iconbtn" id="btnBlocksEditClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body blocks-edit-body">
       <aside class="palette palette-modal">
-        <div class="section-label">Block palette</div>
+        <div class="section-label" data-i18n="palette_title">Block palette</div>
         <div class="palette-groups" id="blocksEditPalette"></div>
-        <div class="palette-hint">Drag a block into the list, or click it to append.</div>
+        <div class="palette-hint" data-i18n="palette_hint_list">Drag a block into the list, or click it to append.</div>
       </aside>
       <div class="blocks-edit-main">
-        <div class="hint">These blocks run instead of continuing when the block above fails. Drag the grip (or ↑ ↓) to reorder.</div>
+        <div class="hint" data-i18n="blocks_edit_hint">These blocks run instead of continuing when the block above fails. Drag the grip (or ↑ ↓) to reorder.</div>
         <div class="blocklist blocks-edit-list" id="blocksEditList"></div>
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost-danger" id="btnBlocksEditClear">Remove all</button>
+      <button class="btn btn-ghost-danger" id="btnBlocksEditClear" data-i18n="blocks_edit_clear">Remove all</button>
       <span class="flex-spacer"></span>
-      <button class="btn btn-primary" id="btnBlocksEditDone">Done</button>
+      <button class="btn btn-primary" id="btnBlocksEditDone" data-i18n="btn_done">Done</button>
     </div>
   </div>
 </div>
@@ -557,18 +575,18 @@
 <div class="overlay hidden" id="hookPreviewModal">
   <div class="modal modal-wide">
     <div class="modal-head">
-      <span class="section-label">Webhook attachment preview</span>
+      <span class="section-label" data-i18n="hook_preview_title">Webhook attachment preview</span>
       <span class="readout" id="hookPreviewDetail">—</span>
       <span class="flex-spacer"></span>
-      <button class="iconbtn" id="btnHookPreviewClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="iconbtn" id="btnHookPreviewClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body">
-      <div class="hook-preview" id="hookPreviewBody"><div class="empty">Rendering…</div></div>
-      <div class="hint">Nothing has been sent — this is only what the block would attach.</div>
+      <div class="hook-preview" id="hookPreviewBody"><div class="empty" data-i18n="rendering">Rendering…</div></div>
+      <div class="hint" data-i18n="hook_preview_hint">Nothing has been sent — this is only what the block would attach.</div>
     </div>
     <div class="modal-foot">
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnHookPreviewDone">Close</button>
+      <button class="btn" id="btnHookPreviewDone" data-i18n="btn_close">Close</button>
     </div>
   </div>
 </div>
@@ -576,20 +594,46 @@
 <div class="overlay hidden" id="recEditModal">
   <div class="modal modal-wide">
     <div class="modal-head">
-      <span class="section-label" id="recEditTitle">Actions</span>
+      <span class="section-label" id="recEditTitle" data-i18n="recedit_title">Actions</span>
       <span class="readout" id="recEditSub">—</span>
       <span class="flex-spacer"></span>
-      <button class="iconbtn" id="btnRecEditClose"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+      <button class="iconbtn" id="btnRecEditClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
     </div>
     <div class="modal-body">
-      <div class="hint">Edit the fields, drag the grip (or use ↑ ↓) to reorder, and delete what you do not need. New block types are added in the Builder, not here.</div>
+      <div class="hint" data-i18n="recedit_hint">Edit the fields, drag the grip (or use ↑ ↓) to reorder, and delete what you do not need. New block types are added in the Builder, not here.</div>
       <div class="blocklist recedit-list" id="recEditList"></div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost-danger" id="btnRecEditReset">Reset to original</button>
+      <button class="btn btn-ghost-danger" id="btnRecEditReset" data-i18n="recedit_reset">Reset to original</button>
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnRecEditCancel">Close</button>
-      <button class="btn btn-primary" id="btnRecEditSave">Save</button>
+      <button class="btn" id="btnRecEditCancel" data-i18n="btn_close">Close</button>
+      <button class="btn btn-primary" id="btnRecEditSave" data-i18n="btn_save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Shareable bundles: one modal for "here is what will go in" (export) and
+     "here is what will land, and what it would replace" (import). -->
+<div class="overlay hidden" id="bundleModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" id="bundleTitle" data-i18n="bundle_export_title">Export bundle</span>
+      <span class="readout" id="bundleSub">—</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnBundleClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="bundle-body" id="bundleBody"></div>
+      <label class="switch-row bundle-overwrite hidden" id="bundleOverwriteRow">
+        <span class="switch"><input type="checkbox" id="bundleOverwrite"><span class="slider"></span></span>
+        <span data-i18n="bundle_overwrite">Replace my existing files</span>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <span class="hint" id="bundleHint"></span>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnBundleCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" id="btnBundleOk" data-i18n="btn_continue">Continue</button>
     </div>
   </div>
 </div>
@@ -603,8 +647,8 @@
     </div>
     <div class="modal-foot">
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnTextCancel">Cancel</button>
-      <button class="btn btn-primary" id="btnTextOk">OK</button>
+      <button class="btn" id="btnTextCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" id="btnTextOk" data-i18n="btn_ok">OK</button>
     </div>
   </div>
 </div>
@@ -615,8 +659,8 @@
     <div class="modal-body"><div class="confirm-text" id="confirmText"></div></div>
     <div class="modal-foot">
       <span class="flex-spacer"></span>
-      <button class="btn" id="btnConfirmCancel">Cancel</button>
-      <button class="btn btn-danger" id="btnConfirmOk">Confirm</button>
+      <button class="btn" id="btnConfirmCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-danger" id="btnConfirmOk" data-i18n="btn_confirm">Confirm</button>
     </div>
   </div>
 </div>
