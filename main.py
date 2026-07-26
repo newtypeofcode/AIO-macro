@@ -52,6 +52,7 @@ class Api:
         self._capture_cache = None
         self._capture_cache_hwnd = None
         self._maximized = False
+        self._gui_hwnd = 0
         # Serialises target changes against the status poll, which also
         # writes settings when it re-finds a relaunched window.
         self._target_lock = threading.Lock()
@@ -143,6 +144,38 @@ class Api:
             self._window.minimize()
         except Exception:
             pass
+
+    def _own_hwnd(self) -> int:
+        """Our own window handle, found by title and cached.
+
+        pywebview does not expose it, and the frameless drag/resize helpers
+        need a real HWND to post messages to.
+        """
+        if self._gui_hwnd and wm.is_window(self._gui_hwnd):
+            return self._gui_hwnd
+        self._gui_hwnd = wm.find_own_window(GUI_TITLE)
+        return self._gui_hwnd
+
+    def begin_window_drag(self) -> bool:
+        """Hand the move to Windows itself.
+
+        The window is frameless, so there is no OS title bar to grab. Doing
+        the move in JavaScript instead cannot keep up with the pointer and
+        loses snapping and multi-monitor edges entirely.
+        """
+        hwnd = self._own_hwnd()
+        if not hwnd:
+            return False
+        self._maximized = False
+        return wm.begin_native_drag(hwnd)
+
+    def begin_window_resize(self, edge: str) -> bool:
+        """Hand the resize to Windows itself, from the named edge/corner."""
+        hwnd = self._own_hwnd()
+        if not hwnd:
+            return False
+        self._maximized = False
+        return wm.begin_native_resize(hwnd, edge)
 
     def toggle_maximize(self) -> dict:
         """The window is frameless, so the OS provides no maximise button --
@@ -459,6 +492,95 @@ class Api:
         from core import templates as tpl
         ok = tpl.delete_macro(name)
         return {"ok": ok, "macros": tpl.list_macros()}
+
+    def macro_dependencies(self, macro: dict) -> dict:
+        """Which images and recordings a macro needs, and which are missing."""
+        from core import bundle
+        from core import templates as tpl
+        from core import vision
+        deps = bundle.dependencies(macro)
+        return {
+            "images": deps["images"],
+            "recordings": deps["recordings"],
+            "missing_images": [n for n in deps["images"]
+                               if not vision.template_variant_paths(n)],
+            "missing_recordings": [n for n in deps["recordings"]
+                                   if not tpl.recording_exists(n)],
+        }
+
+    def export_macro_bundle(self, macro: dict, filename: str = "macro") -> dict:
+        """Save a shareable .zip: the macro plus every image and recording it
+        references. Nothing else of the user's is included."""
+        from core import bundle
+        try:
+            import webview
+            path = self._window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename="%s.macrozip" % filename,
+                file_types=("Macro bundle (*.macrozip)", "All files (*.*)"))
+            if not path:
+                return {"ok": False, "reason": "cancelled"}
+            if isinstance(path, (list, tuple)):
+                path = path[0]
+            report = bundle.export(macro, path)
+        except Exception as exc:
+            self.push_log("Export failed: %s" % exc)
+            return {"ok": False, "reason": str(exc)}
+        self.push_log("Exported '%s': %d image(s), %d recording(s)."
+                      % (os.path.basename(path), len(report["images"]),
+                         len(report["recordings"])))
+        if report["missing_images"] or report["missing_recordings"]:
+            self.push_log("   missing and not included: %s"
+                          % ", ".join(report["missing_images"]
+                                      + report["missing_recordings"]))
+        return report
+
+    def inspect_macro_bundle(self) -> dict:
+        """Open a bundle and report what it holds, WITHOUT writing anything --
+        so the UI can show what is about to land and what would be replaced."""
+        from core import bundle
+        from core import templates as tpl
+        from core import vision
+        try:
+            import webview
+            paths = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Macro bundle (*.macrozip;*.zip)", "All files (*.*)"))
+            if not paths:
+                return {"ok": False, "reason": "cancelled"}
+            info = bundle.inspect(paths[0])
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+        return {
+            "ok": True, "path": paths[0],
+            "macro_name": (info["macro"] or {}).get("name", ""),
+            "images": info["images"], "recordings": info["recordings"],
+            "clash_images": [n for n in info["images"]
+                             if vision.template_variant_paths(n)],
+            "clash_recordings": [n for n in info["recordings"]
+                                 if tpl.recording_exists(n)],
+        }
+
+    def import_macro_bundle(self, path: str, overwrite: bool = False) -> dict:
+        """Unpack a bundle previously reported by inspect_macro_bundle."""
+        from core import bundle
+        try:
+            report = bundle.import_bundle(path, bool(overwrite))
+        except Exception as exc:
+            self.push_log("Import failed: %s" % exc)
+            return {"ok": False, "reason": str(exc)}
+        self.push_log("Imported %d image(s), %d recording(s)."
+                      % (len(report["images"]), len(report["recordings"])))
+        for label, names in (("images", report["skipped_images"]),
+                             ("recordings", report["skipped_recordings"])):
+            if names:
+                self.push_log("   kept your existing %s: %s"
+                              % (label, ", ".join(names)))
+        if report["rejected"]:
+            self.push_log("   refused %d unexpected entr(y/ies) in the bundle"
+                          % len(report["rejected"]))
+        from core import templates as tpl
+        report["recordings_list"] = tpl.list_recordings()
+        return report
 
     def export_macro_file(self, macro: dict, filename: str = "macro") -> dict:
         try:

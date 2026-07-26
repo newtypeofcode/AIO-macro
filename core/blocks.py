@@ -176,7 +176,14 @@ BLOCK_TYPES = [
          {"key": "speed", "kind": "float", "label": "Speed", "default": 1.0},
      ]},
     {"type": "focus_window", "label": "Focus Target", "group": "Flow", "color": "violet",
-     "fields": []},
+     "fields": [
+         {"key": "resize", "kind": "bool", "label": "Resize", "default": False},
+         {"key": "width", "kind": "int", "label": "Width", "default": 1280},
+         {"key": "height", "kind": "int", "label": "Height", "default": 720},
+         {"key": "move", "kind": "bool", "label": "Move", "default": False},
+         {"key": "x", "kind": "int", "label": "X", "default": 0},
+         {"key": "y", "kind": "int", "label": "Y", "default": 0},
+     ]},
     {"type": "log", "label": "Log Message", "group": "Flow", "color": "violet",
      "fields": [{"key": "text", "kind": "text", "label": "Message", "default": ""}]},
 
@@ -309,7 +316,12 @@ def summarise(block: dict) -> str:
     if btype == "playback":
         return "Play recording '%s'" % g("recording", "?")
     if btype == "focus_window":
-        return "Focus target window"
+        bits = []
+        if params.get("resize"):
+            bits.append("%sx%s" % (g("width", 0), g("height", 0)))
+        if params.get("move"):
+            bits.append("at %s,%s" % (g("x", 0), g("y", 0)))
+        return "Focus target" + (" (" + " ".join(bits) + ")" if bits else "")
     if btype == "log":
         return "Log %r" % str(g("text", ""))
     if btype == "send_webhook":
@@ -338,4 +350,23 @@ _self_check()
 # Hover help lives in its own module so the table above stays compact; it is
 # merged in here so every consumer sees one complete catalog.
 from . import block_help as _block_help  # noqa: E402
-_block_help.apply_to(BLOCK_TYPES)
+
+_language = _block_help.DEFAULT_LANGUAGE
+_block_help.apply_to(BLOCK_TYPES, _language)
+
+
+def set_language(language: str) -> str:
+    """Re-decorate the catalog with help in another language.
+
+    The catalog is a module-level singleton every consumer already holds a
+    reference to, so this rewrites it in place rather than returning a copy.
+    """
+    global _language
+    _language = language if language in _block_help.LANGUAGES \
+        else _block_help.DEFAULT_LANGUAGE
+    _block_help.apply_to(BLOCK_TYPES, _language)
+    return _language
+
+
+def get_language() -> str:
+    return _language

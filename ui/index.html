@@ -73,12 +73,24 @@
   </defs>
 </svg>
 
+<!-- Resize grips. A frameless window has no OS border, so these thin strips
+     stand in for it: mousedown hands the resize to Windows itself, which
+     keeps snapping, aero-snap and multi-monitor edges working. -->
+<div class="resize-grip grip-t"  data-edge="top"></div>
+<div class="resize-grip grip-b"  data-edge="bottom"></div>
+<div class="resize-grip grip-l"  data-edge="left"></div>
+<div class="resize-grip grip-r"  data-edge="right"></div>
+<div class="resize-grip grip-tl" data-edge="topleft"></div>
+<div class="resize-grip grip-tr" data-edge="topright"></div>
+<div class="resize-grip grip-bl" data-edge="bottomleft"></div>
+<div class="resize-grip grip-br" data-edge="bottomright"></div>
+
 <div id="app">
 
   <!-- ================================================================ top -->
   <header class="titlebar">
     <div class="brand">
-      <span class="logo"></span>
+      <img class="logo" src="img/logo-64.png" alt="" draggable="false">
       <span class="brand-name">Macro Studio</span>
       <span class="ver" id="appVersion">—</span>
     </div>

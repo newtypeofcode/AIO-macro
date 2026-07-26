@@ -59,6 +59,7 @@ def main() -> int:
         "--specpath", os.path.join(HERE, "build"),
         "--add-data", "%s%sui" % (os.path.join(HERE, "ui"), sep),
         "--add-data", "%s%s." % (os.path.join(HERE, "VERSION"), sep),
+        "--icon", os.path.join(HERE, "ui", "img", "logo.ico"),
         # pywebview picks its backend at runtime, so PyInstaller's static
         # analysis never sees these imports.
         "--hidden-import", "webview.platforms.winforms",

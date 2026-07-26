@@ -3422,6 +3422,35 @@ function setMaximizedUI(on) {
   var use = $("#btnMaxIcon");
   if (use) use.setAttribute("href", winMaximized ? "#i-restore" : "#i-max");
   if (btn) btn.title = winMaximized ? "Restore down" : "Maximize";
+  document.body.classList.toggle("is-maximized", winMaximized);
+}
+
+/* --------------------------------------------------------------------------
+   Frameless move and resize.
+
+   The window has no OS border, so nothing starts Windows' own move/resize
+   loops. Doing them here in JavaScript would mean chasing the pointer a
+   frame behind and losing snapping, aero-snap and multi-monitor edges, so
+   instead the mousedown is handed straight back to Windows.
+   -------------------------------------------------------------------------- */
+function wireFramelessChrome() {
+  $$(".resize-grip").forEach(function (grip) {
+    grip.addEventListener("mousedown", function (e) {
+      if (e.button !== 0 || winMaximized) return;
+      e.preventDefault();
+      apiQ("begin_window_resize", grip.dataset.edge);
+    });
+  });
+
+  var bar = $(".titlebar");
+  if (!bar) return;
+  bar.addEventListener("mousedown", function (e) {
+    /* Left button, and not on something with its own job. */
+    if (e.button !== 0) return;
+    if (e.target.closest("button, input, select, .target-chip, .sel")) return;
+    e.preventDefault();
+    apiQ("begin_window_drag");
+  });
 }
 
 async function toggleMaximize() {
@@ -3448,6 +3477,7 @@ function wireStatic() {
     if (e.target.closest("button, .target-chip")) return;
     toggleMaximize();
   });
+  wireFramelessChrome();
 
   $$(".railbtn").forEach(function (btn) {
     btn.addEventListener("click", function () { showScreen(btn.dataset.screen); });

@@ -216,11 +216,30 @@ button { cursor: pointer; border: none; background: none; }
 .brand { display: flex; align-items: center; gap: 9px; flex: none; min-width: 0; }
 .brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logo {
-  width: 16px; height: 16px; border-radius: 5px;
-  background: linear-gradient(135deg, var(--accent), var(--teal));
-  box-shadow: 0 0 0 1px rgba(255,255,255,.07) inset;
+  width: 18px; height: 18px; border-radius: 5px;
+  display: block; flex: none; object-fit: contain;
+  -webkit-user-drag: none; user-select: none;
 }
 .brand-name { font-weight: 600; font-size: 13px; letter-spacing: .01em; }
+
+/* --------------------------------------------------------------------------
+   Resize grips for the frameless window. Fixed to the viewport edges, above
+   everything, only a few pixels wide so they never eat a real click. The
+   mousedown handler hands the resize to Windows itself, which keeps
+   snapping, aero-snap and multi-monitor edges working.
+   -------------------------------------------------------------------------- */
+.resize-grip { position: fixed; z-index: 10000; -webkit-app-region: no-drag; }
+.grip-t  { top: 0; left: 8px; right: 8px; height: 4px; cursor: ns-resize; }
+.grip-b  { bottom: 0; left: 8px; right: 8px; height: 4px; cursor: ns-resize; }
+.grip-l  { left: 0; top: 8px; bottom: 8px; width: 4px; cursor: ew-resize; }
+.grip-r  { right: 0; top: 8px; bottom: 8px; width: 4px; cursor: ew-resize; }
+.grip-tl { top: 0; left: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+.grip-tr { top: 0; right: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+.grip-bl { bottom: 0; left: 0; width: 10px; height: 10px; cursor: nesw-resize; }
+.grip-br { bottom: 0; right: 0; width: 10px; height: 10px; cursor: nwse-resize; }
+/* Maximised there are no edges to drag, and a live grip at the screen edge
+   would un-maximise the window on a stray click. */
+body.is-maximized .resize-grip { display: none; }
 .ver {
   font-size: 10px; color: var(--dim); background: var(--panel-3);
   border: 1px solid var(--border); border-radius: 20px; padding: 1px 7px;

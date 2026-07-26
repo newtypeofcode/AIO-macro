@@ -30,6 +30,7 @@ else:
 
 UI_DIR = os.path.join(BUNDLE_DIR, "ui")
 VERSION_FILE = os.path.join(BUNDLE_DIR, "VERSION")
+ICON_FILE = os.path.join(UI_DIR, "img", "logo.ico")
 
 # User-owned, always beside the exe so it survives updates and onefile temp
 # extraction. Assets holds the reference PNGs the image blocks search for --

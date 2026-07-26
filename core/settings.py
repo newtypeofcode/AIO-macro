@@ -32,6 +32,7 @@ DEFAULTS = {
     "loop_forever": True,
     "loop_count": 1,
     "theme": "midnight",
+    "language": "en",
     # Discord webhook. Nothing is ever sent unless this is switched on AND a
     # Send Webhook block runs (or the user presses Test).
     "webhook_enabled": False,

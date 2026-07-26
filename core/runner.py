@@ -851,10 +851,50 @@ class MacroRunner:
 
     # ---------------------------------------------------------------- flow
 
-    def _do_focus_window(self, _params) -> None:
-        if self._hwnd and wm.is_window(self._hwnd):
-            wm.activate_window(self._hwnd)
-            time.sleep(0.2)
+    def _do_focus_window(self, params) -> None:
+        if not (self._hwnd and wm.is_window(self._hwnd)):
+            self._log("No target window to focus.")
+            return
+        wm.activate_window(self._hwnd)
+        time.sleep(0.2)
+
+        resize = bool(params.get("resize"))
+        move = bool(params.get("move"))
+        if not (resize or move):
+            return
+
+        try:
+            left, top, right, bottom = wm.get_window_rect(self._hwnd)
+        except Exception:
+            left = top = 0
+            right = bottom = 0
+
+        if resize:
+            # The width/height the user types is the CLIENT area -- that is
+            # what every coordinate in the macro is measured against. Sizing
+            # the outer frame instead would leave clicks off by the border.
+            width = max(100, int(self._num(params, "width", 1280)))
+            height = max(100, int(self._num(params, "height", 720)))
+            outer_w, outer_h = wm.client_size_to_window_size(self._hwnd, width, height)
+        else:
+            outer_w, outer_h = right - left, bottom - top
+
+        if move:
+            x = int(self._num(params, "x", 0))
+            y = int(self._num(params, "y", 0))
+        else:
+            x, y = left, top
+
+        wm.move_window(self._hwnd, x, y, outer_w, outer_h)
+        time.sleep(0.25)
+        got_w, got_h = wm.get_client_size(self._hwnd)
+        if resize and (abs(got_w - width) > 2 or abs(got_h - height) > 2):
+            # Plenty of windows refuse a size (fixed dialogs, fullscreen
+            # games). Saying so beats every later click silently missing.
+            self._log("Target would not resize to %dx%d -- it is %dx%d."
+                      % (width, height, got_w, got_h))
+        else:
+            self._log("Target now %dx%d at %d,%d." % (got_w, got_h, x, y))
 
     def _do_log(self, params) -> None:
         self._log(str(params.get("text") or ""))

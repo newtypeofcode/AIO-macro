@@ -321,6 +321,64 @@ def resize_client_to(hwnd, width, height) -> None:
                         0x0004 | SWP_NOACTIVATE)  # SWP_NOZORDER
 
 
+# --------------------------------------------------------- frameless chrome
+#
+# A frameless window has no OS border, so Windows never starts its own drag
+# or resize loop. Rather than reimplementing those loops in JavaScript (which
+# cannot keep up with the pointer and ignores snap, aero-snap and multi-
+# monitor edges), we hand the job back to Windows: release the mouse capture
+# and post the non-client button-down message it would have received if the
+# user had grabbed a real border.
+
+WM_NCLBUTTONDOWN = 0x00A1
+HTCAPTION = 2
+HTLEFT = 10
+HTRIGHT = 11
+HTTOP = 12
+HTTOPLEFT = 13
+HTTOPRIGHT = 14
+HTBOTTOM = 15
+HTBOTTOMLEFT = 16
+HTBOTTOMRIGHT = 17
+
+RESIZE_EDGES = {
+    "left": HTLEFT, "right": HTRIGHT, "top": HTTOP, "bottom": HTBOTTOM,
+    "topleft": HTTOPLEFT, "topright": HTTOPRIGHT,
+    "bottomleft": HTBOTTOMLEFT, "bottomright": HTBOTTOMRIGHT,
+}
+
+
+def begin_native_drag(hwnd) -> bool:
+    """Start Windows' own move loop, as if the title bar had been grabbed."""
+    try:
+        user32.ReleaseCapture()
+        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, HTCAPTION, 0)
+        return True
+    except Exception:
+        return False
+
+
+def begin_native_resize(hwnd, edge: str) -> bool:
+    """Start Windows' own resize loop from the named edge or corner."""
+    code = RESIZE_EDGES.get(str(edge).lower())
+    if code is None:
+        return False
+    try:
+        user32.ReleaseCapture()
+        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, code, 0)
+        return True
+    except Exception:
+        return False
+
+
+def find_own_window(title: str):
+    """Our own top-level window by exact title."""
+    for info in list_windows():
+        if info["title"] == title:
+            return info["hwnd"]
+    return 0
+
+
 def capture_window_rgb(hwnd):
     """PrintWindow capture of the window's own contents.
 

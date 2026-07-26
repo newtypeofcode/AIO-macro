@@ -272,9 +272,21 @@ HELP = {
         },
     },
     "focus_window": {
-        "desc": "Выводит окно-цель на передний план. Ставь в начало, если "
-                "цель может оказаться перекрытой другим окном.",
-        "fields": {},
+        "desc": "Выводит окно-цель на передний план и, если нужно, приводит "
+                "его к заданному размеру и положению.\n\n"
+                "Ставь в Setup: макрос, записанный при одном размере окна, "
+                "промахнётся при другом — этот блок гарантирует, что окно "
+                "каждый раз одинаковое.",
+        "fields": {
+            "resize": "Менять ли размер окна.",
+            "width": "Ширина **клиентской области** — той, относительно "
+                     "которой считаются все координаты макроса. Рамка и "
+                     "заголовок добавляются сверху автоматически.",
+            "height": "Высота клиентской области.",
+            "move": "Двигать ли окно в заданную точку экрана.",
+            "x": "Куда поставить левый край окна.",
+            "y": "Куда поставить верхний край окна.",
+        },
     },
     "log": {
         "desc": "Пишет строку в журнал внизу. Ни на что не влияет — помогает "
@@ -331,12 +343,55 @@ SHARED = {
 }
 
 
-def apply_to(block_types) -> None:
-    """Merge the help text into the catalog in place."""
+LANGUAGES = ("en", "ru")
+DEFAULT_LANGUAGE = "en"
+
+
+def _table(language: str):
+    """(help, shared) for a language, falling back to Russian.
+
+    English lives in its own module so the two stay readable side by side
+    rather than as a dict of dicts of dicts.
+    """
+    if str(language).lower().startswith("ru"):
+        return HELP, SHARED
+    try:
+        from . import block_help_en as en
+        return en.HELP, en.SHARED
+    except Exception:
+        return HELP, SHARED
+
+
+def apply_to(block_types, language: str = DEFAULT_LANGUAGE) -> None:
+    """Merge the help text into the catalog in place, in one language.
+
+    Overwrites rather than setdefault: the catalog is re-decorated whenever
+    the language changes, and a setdefault would leave the first language
+    baked in forever.
+    """
+    help_table, shared = _table(language)
     for spec in block_types:
-        entry = HELP.get(spec["type"], {})
-        spec.setdefault("desc", entry.get("desc", ""))
+        entry = help_table.get(spec["type"], {})
+        spec["desc"] = entry.get("desc", "")
         field_help = entry.get("fields", {})
         for field in spec["fields"]:
-            text = field_help.get(field["key"]) or SHARED.get(field["key"], "")
-            field.setdefault("help", text)
+            field["help"] = field_help.get(field["key"]) or shared.get(field["key"], "")
+
+
+def missing(language: str):
+    """Which strings a translation is still missing -- so a half-finished
+    language shows up as a test failure rather than as blank tooltips."""
+    help_table, shared = _table(language)
+    gaps = []
+    for block_type, entry in HELP.items():
+        target = help_table.get(block_type)
+        if not target or not target.get("desc"):
+            gaps.append(block_type)
+            continue
+        for key in entry.get("fields", {}):
+            if not target.get("fields", {}).get(key):
+                gaps.append("%s.%s" % (block_type, key))
+    for key in SHARED:
+        if not shared.get(key):
+            gaps.append("SHARED.%s" % key)
+    return gaps
