@@ -24,7 +24,7 @@ ON_FAIL_OPTIONS = ["continue", "run blocks", "restart phase", "skip rest", "stop
 # What happens once a "run blocks" fallback has finished.
 ON_FAIL_AFTER_OPTIONS = ["continue main", "restart phase", "restart macro", "stop"]
 
-ON_FAIL_FIELDS = [
+_ON_FAIL_TEMPLATE = [
     {"key": "on_fail", "kind": "choice", "label": "On fail", "default": "continue",
      "options": ON_FAIL_OPTIONS},
     # Both only meaningful for "run blocks"; the UI hides them otherwise.
@@ -32,6 +32,18 @@ ON_FAIL_FIELDS = [
     {"key": "on_fail_after", "kind": "choice", "label": "Then", "default": "continue main",
      "options": ON_FAIL_AFTER_OPTIONS},
 ]
+
+
+def _on_fail_fields():
+    """FRESH dicts for each block.
+
+    Splicing one shared list into every Vision block (`] + ON_FAIL_FIELDS`)
+    concatenates into a new list but reuses the same dict objects, so all
+    seven blocks ended up sharing one `on_fail` field. Since the help text is
+    written INTO that dict per block, the last one processed won -- every
+    image and colour block was showing "if the text is not found".
+    """
+    return copy.deepcopy(_ON_FAIL_TEMPLATE)
 
 BLOCK_TYPES = [
     # ------------------------------------------------------------ mouse
@@ -101,7 +113,7 @@ BLOCK_TYPES = [
          {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
          {"key": "threshold", "kind": "float", "label": "Confidence", "default": 0.88},
          {"key": "region", "kind": "region", "label": "Region", "default": None},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "click_image", "label": "Click Image", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "template", "kind": "template", "label": "Image", "default": ""},
@@ -112,14 +124,14 @@ BLOCK_TYPES = [
           "options": ["left", "right", "middle"]},
          {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
          {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "wait_image_gone", "label": "Wait Image Gone", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "template", "kind": "template", "label": "Image", "default": ""},
          {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
          {"key": "threshold", "kind": "float", "label": "Confidence", "default": 0.88},
          {"key": "region", "kind": "region", "label": "Region", "default": None},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "wait_color", "label": "Wait for Color", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "x", "kind": "int", "label": "X", "default": 0},
@@ -129,7 +141,7 @@ BLOCK_TYPES = [
          # `tolerance` is still honoured when a saved macro carries it.
          {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.92},
          {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "click_color", "label": "Click Color", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "color", "kind": "color", "label": "Color", "default": "#ffffff"},
@@ -141,7 +153,7 @@ BLOCK_TYPES = [
           "options": ["left", "right", "middle"]},
          {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
          {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "wait_text", "label": "Wait for Text", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "text", "kind": "text", "label": "Text", "default": ""},
@@ -150,7 +162,7 @@ BLOCK_TYPES = [
          {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.75},
          {"key": "match", "kind": "choice", "label": "Match", "default": "contains",
           "options": ["contains", "exact"]},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "click_text", "label": "Click Text", "group": "Vision", "color": "teal",
      "fields": [
          {"key": "text", "kind": "text", "label": "Text", "default": ""},
@@ -161,7 +173,7 @@ BLOCK_TYPES = [
           "options": ["left", "right", "middle"]},
          {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
          {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
-     ] + ON_FAIL_FIELDS},
+     ] + _on_fail_fields()},
     {"type": "read_text", "label": "Read Text", "group": "Vision", "color": "teal",
      "fields": [{"key": "region", "kind": "region", "label": "Region", "default": None}]},
 

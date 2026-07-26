@@ -70,6 +70,40 @@ def test_image_confidence_keeps_its_old_param_name():
         assert "threshold" in keys, name
 
 
+def test_every_block_owns_its_field_dicts():
+    """Splicing one shared list of field dicts into several blocks reuses the
+    SAME objects. The help text is written into those dicts per block, so the
+    last block processed won and every image and colour block ended up
+    showing "if the text is not found"."""
+    seen = {}
+    for spec in blocks.catalog():
+        for field in spec["fields"]:
+            owner = seen.get(id(field))
+            assert owner is None, \
+                "%s and %s share the same '%s' field object" \
+                % (owner, spec["type"], field["key"])
+            seen[id(field)] = spec["type"]
+
+
+@pytest.mark.parametrize("block_type,expect", [
+    ("wait_image", "image"), ("click_image", "image"),
+    ("wait_image_gone", "image"),
+    ("wait_color", "colour"), ("click_color", "colour"),
+    ("wait_text", "text"), ("click_text", "text"),
+])
+def test_each_block_gets_its_own_on_fail_wording(block_type, expect):
+    from core import blocks as blockmod
+    for language in ("en", "ru"):
+        blockmod.set_language(language)
+        field = [f for f in blockmod.BY_TYPE[block_type]["fields"]
+                 if f["key"] == "on_fail"][0]
+        assert field["help"], (block_type, language)
+    blockmod.set_language("en")
+    field = [f for f in blocks.BY_TYPE[block_type]["fields"]
+             if f["key"] == "on_fail"][0]
+    assert expect in field["help"].lower(), (block_type, field["help"][:70])
+
+
 def test_colour_blocks_no_longer_expose_a_raw_tolerance():
     for name in ("wait_color", "click_color"):
         keys = {f["key"] for f in blocks.BY_TYPE[name]["fields"]}
