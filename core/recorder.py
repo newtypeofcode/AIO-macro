@@ -13,6 +13,28 @@ import time
 
 from . import window as wm
 from . import keys as keymod
+from .i18n import tr
+
+# Self-echo suppression lives with the injection layer: everything this app
+# sends through SendInput comes straight back through the same pynput hooks
+# the recorder listens on. Without this import the hook callbacks raised
+# NameError on the very first event, which surfaced as
+# "start_recording: name '_input_backend' is not defined".
+try:
+    from . import _input_win as _input_backend
+except Exception:                                   # pragma: no cover
+    # Non-Windows (or a broken ctypes load): recording still works, it just
+    # cannot tell our own injected events apart from real ones.
+    class _NoEchoTracking:
+        @staticmethod
+        def was_injected(kind, identity, window=0.0) -> bool:
+            return False
+
+        @staticmethod
+        def clear_injected_marks() -> None:
+            return None
+
+    _input_backend = _NoEchoTracking()
 
 _BUTTON_NAMES = {"left": "left", "right": "right", "middle": "middle"}
 
@@ -128,7 +150,7 @@ class Recorder:
         try:
             from pynput import mouse as pmouse, keyboard as pkeyboard
         except ImportError:
-            self._log("pynput is not installed -- recording unavailable.")
+            self._log(tr("pynput is not installed -- recording unavailable."))
             return False
 
         self._events = []
@@ -141,13 +163,17 @@ class Recorder:
         self._move_interval = max(0.001, float(move_interval_ms) / 1000.0)
         self._hwnd = int(hwnd or 0)
 
-        def on_click(x, y, button, pressed):
+        # pynput >= 1.8 passes an extra `injected` flag to every hook. The
+        # old two/four-argument signatures then raise TypeError on every
+        # single event, so each callback accepts it explicitly -- and uses it
+        # as one more self-echo signal.
+        def on_click(x, y, button, pressed, injected=False, *_extra):
             name = _BUTTON_NAMES.get(getattr(button, "name", ""), "left")
             kind = "mouse_down" if pressed else "mouse_up"
             # Our own injected clicks come back through the same hook. Without
             # this, recording while a macro plays captures the macro's output
             # and the recording grows a copy of itself.
-            if _input_backend.was_injected(kind, name):
+            if injected or _input_backend.was_injected(kind, name):
                 return
             cx, cy = self._to_client(x, y)
             if pressed:
@@ -158,8 +184,8 @@ class Recorder:
                           "button": name, "x": cx, "y": cy,
                           "sx": int(x), "sy": int(y)})
 
-        def on_move(x, y):
-            if not self._record_moves:
+        def on_move(x, y, injected=False, *_extra):
+            if injected or not self._record_moves:
                 return
             now = time.perf_counter()
             # Throttled: a raw hook fires hundreds of times a second and the
@@ -171,7 +197,9 @@ class Recorder:
             self._append({"t": self._now(), "type": "move",
                           "x": cx, "y": cy, "sx": int(x), "sy": int(y)})
 
-        def on_scroll(x, y, dx, dy):
+        def on_scroll(x, y, dx, dy, injected=False, *_extra):
+            if injected:
+                return
             cx, cy = self._to_client(x, y)
             self._append({"t": self._now(), "type": "scroll",
                           "dx": int(dx), "dy": int(dy), "x": cx, "y": cy})
@@ -216,7 +244,9 @@ class Recorder:
                 name = _ALIASES.get(name, name)
             return name, char, (int(vk) if vk is not None else None)
 
-        def on_press(key):
+        def on_press(key, injected=False, *_extra):
+            if injected:
+                return
             name, char, vk = key_identity(key)
             if name in self._suppress_keys or (char and char.lower() in self._suppress_keys):
                 return
@@ -233,7 +263,9 @@ class Recorder:
             self._append({"t": self._now(), "type": "key_down",
                           "key": name, "vk": vk, "char": char})
 
-        def on_release(key):
+        def on_release(key, injected=False, *_extra):
+            if injected:
+                return
             name, char, vk = key_identity(key)
             if name in self._suppress_keys or (char and char.lower() in self._suppress_keys):
                 return
@@ -242,9 +274,23 @@ class Recorder:
             self._append({"t": self._now(), "type": "key_up",
                           "key": name, "vk": vk, "char": char})
 
+        def guard(fn):
+            """A pynput callback that raises takes its listener thread down
+            with it, and the recording then goes on "running" while capturing
+            nothing. Log the fault and keep the hook alive instead.
+            """
+            def wrapped(*args, **kwargs):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as exc:
+                    self._log(tr("Recorder hook error: %s") % exc)
+            return wrapped
+
         self._mouse_listener = pmouse.Listener(
-            on_click=on_click, on_move=on_move, on_scroll=on_scroll)
-        self._key_listener = pkeyboard.Listener(on_press=on_press, on_release=on_release)
+            on_click=guard(on_click), on_move=guard(on_move),
+            on_scroll=guard(on_scroll))
+        self._key_listener = pkeyboard.Listener(
+            on_press=guard(on_press), on_release=guard(on_release))
         self._mouse_listener.start()
         self._key_listener.start()
 
@@ -258,11 +304,11 @@ class Recorder:
                 listener = rawinput.Listener(self._raw_delta)
                 self._raw = listener if listener.start() else None
                 if self._raw is None:
-                    self._log("Raw mouse input unavailable -- camera drags "
-                              "will be recorded from cursor positions only.")
+                    self._log(tr("Raw mouse input unavailable -- camera drags "
+                                 "will be recorded from cursor positions only."))
         except Exception as exc:
             self._raw = None
-            self._log("Raw mouse input unavailable (%s)." % exc)
+            self._log(tr("Raw mouse input unavailable (%s).") % exc)
 
         _input_backend.clear_injected_marks()
         self.active = True
@@ -322,6 +368,13 @@ def events_to_blocks(events, coord_space: str = "window",
     blocks for the real pauses between actions. Gaps under min_gap_ms are
     dropped -- otherwise the list is 90% two-millisecond waits nobody wants
     to look at.
+
+    min_gap_ms = 0 means NO waits at all. It used to mean "keep every gap",
+    which put a wait before literally every action -- and since mouse moves
+    are sampled at record_move_interval_ms, every one of those waits was that
+    interval (80ms by default). Asking for a zero gap and getting an 80ms
+    pause before each action is not what the number says, so zero now
+    switches the wait blocks off entirely.
     """
     blocks = []
     if not events:
@@ -365,6 +418,11 @@ def events_to_blocks(events, coord_space: str = "window",
         """
         nonlocal last_t
         if t < last_t:
+            return
+        if min_gap_ms <= 0:
+            # No pacing wanted at all -- the clock still advances so later
+            # gaps stay honest if the setting is raised again.
+            last_t = t
             return
         gap_ms = int(round((t - last_t) * 1000))
         if gap_ms >= min_gap_ms:

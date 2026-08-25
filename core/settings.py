@@ -18,11 +18,16 @@ DEFAULTS = {
     "action_delay_ms": 0,           # global pacing knob
     "default_threshold": 0.88,      # template matching
     "record_mouse_move": True,
-    # Kept ABOVE the 60ms default minimum gap on purpose: throttling moves
-    # faster than the gap filter means every recorded move is separated by
-    # less than min_gap, so no wait block is ever inserted and the whole
-    # cursor path replays instantly.
-    "record_move_interval_ms": 80,
+    # How often the cursor position is sampled while recording. This is the
+    # resolution of the recorded PATH, so it decides how smooth the replay
+    # looks: at the old 80ms only ~12 positions a second were kept and the
+    # cursor visibly hopped between them. 8ms is ~125Hz -- smooth, and still
+    # far below the rate at which the raw hook fires.
+    "record_move_interval_ms": 8,
+    # The record screen's "Minimum gap" box, persisted so the preview shown
+    # right after a take uses the same number the user last chose. 0 means
+    # "insert no wait blocks at all".
+    "record_min_gap_ms": 60,
     "theme_accent": "violet",
     "hotkey_start": "f1",
     "hotkey_stop": "f2",
@@ -31,6 +36,21 @@ DEFAULTS = {
     "hotkey_pick": "f8",
     "loop_forever": True,
     "loop_count": 1,
+    # The Watch phase. It is polled between blocks rather than on its own
+    # thread: interrupting a block halfway would leave a mouse button held
+    # or a key stuck down.
+    "watch_enabled": True,
+    "watch_interval_ms": 400,
+    "watch_after": "continue",      # continue | restart loop | restart macro
+    # Which server the Rejoin Server block goes back to when the block
+    # itself is left blank -- the place id and the private server code.
+    # Kept as settings so one edit fixes every rejoin block in every
+    # macro when the private server link is regenerated.
+    # A share link on its own is enough; the two fields under it are
+    # only for the place id / linkCode form.
+    "roblox_share_link": "",
+    "roblox_place_id": "",
+    "roblox_link_code": "",
     "theme": "midnight",
     "language": "en",
     # Discord webhook. Nothing is ever sent unless this is switched on AND a
@@ -38,6 +58,12 @@ DEFAULTS = {
     "webhook_enabled": False,
     "webhook_url": "",
     "webhook_username": "Macro Studio",
+    # Discord embed design defaults. The webhook URL remains the only secret.
+    "webhook_title": "Macro report",
+    "webhook_description": "",
+    "webhook_color": "#8b5cf6",
+    "webhook_footer": "Macro Studio",
+    "webhook_timestamp": True,
 }
 
 

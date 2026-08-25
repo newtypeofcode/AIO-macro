@@ -179,10 +179,12 @@ def test_a_kept_leading_move_still_starts_immediately():
     assert [b["type"] for b in out] == ["move", "wait_ms", "click"]
 
 
-def test_move_throttle_default_is_above_the_min_gap_default():
-    """Throttling moves faster than the gap filter means no wait is ever
-    inserted between them and the whole path replays instantly."""
-    assert smod.DEFAULTS["record_move_interval_ms"] > 60
+def test_move_throttle_default_is_fine_enough_for_a_smooth_replay():
+    """The sample interval IS the resolution of the recorded path. At the old
+    80ms only ~12 positions a second were kept, and the replayed cursor
+    visibly hopped between them; a wait block per hop made it worse. Waits
+    are now off at gap 0, so the interval is free to be small."""
+    assert smod.DEFAULTS["record_move_interval_ms"] <= 16
 
 
 # ------------------------------------------------------------------- keys

@@ -242,6 +242,44 @@ def find_image(hwnd, name: str, region=None, threshold: float = None):
     return match
 
 
+def find_all_images(hwnd, name: str, region=None, threshold: float = None,
+                   max_results: int = 50):
+    """All non-overlapping matches of `name` in client coordinates.
+    Returns list of match dicts sorted by score descending."""
+    frame = capture.capture_target_bgr(hwnd, region)
+    if frame is None:
+        return []
+    threshold = DEFAULT_THRESHOLD if threshold is None else float(threshold)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    results = []
+    for scale in SCALE_FACTORS:
+        for template in _scaled_templates(name, scale):
+            th, tw = template.shape[:2]
+            res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+            locs = np.where(res >= threshold)
+            for pt in zip(locs[1], locs[0]):
+                cx, cy = pt[0] + tw // 2, pt[1] + th // 2
+                # Suppress duplicates within half a template width
+                too_close = any(
+                    abs(m["cx"] - cx) < tw // 2 and abs(m["cy"] - cy) < th // 2
+                    for m in results
+                )
+                if not too_close:
+                    ox, oy = (int(region[0]), int(region[1])) if region else (0, 0)
+                    results.append({
+                        "x": pt[0] + ox, "y": pt[1] + oy,
+                        "cx": cx + ox, "cy": cy + oy,
+                        "w": tw, "h": th,
+                        "score": float(res[pt[1], pt[0]]),
+                    })
+                if len(results) >= max_results:
+                    break
+            if len(results) >= max_results:
+                break
+    results.sort(key=lambda m: m["score"], reverse=True)
+    return results
+
+
 def find_image_any(hwnd, names, region=None, threshold: float = None):
     """Several differently-named templates against ONE captured frame.
 

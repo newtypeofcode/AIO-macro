@@ -140,7 +140,10 @@
       <!-- ------------------------------------------------------- BUILDER -->
       <section class="screen screen-builder active" id="screen-builder">
         <aside class="palette">
-          <div class="section-label" data-i18n="palette_title">Block palette</div>
+          <div class="palette-head">
+            <div class="section-label" data-i18n="palette_title">Block palette</div>
+            <button class="iconbtn" id="btnPalettes" data-i18n-title="palette_manage" title="Manage palettes">+</button>
+          </div>
           <div class="palette-groups" id="paletteGroups"></div>
           <div class="palette-hint" data-i18n="palette_hint">Drag a block into a phase, or click it to append.</div>
         </aside>
@@ -165,6 +168,11 @@
               <div class="menu menu-right hidden" id="exportMenu"></div>
             </div>
             <span class="save-hint" id="saveHint"></span>
+          </div>
+          <div class="block-search-bar" id="blockSearchBar">
+            <svg class="ic ic-sm" style="color:var(--dim);flex:none"><use href="#i-search"></use></svg>
+            <input class="inp" id="blockSearchInp" spellcheck="false" autocomplete="off" placeholder="Filter blocks...">
+            <span class="block-search-count" id="blockSearchCount"></span>
           </div>
           <div class="phases" id="phases"></div>
         </div>
@@ -263,7 +271,10 @@
               </label>
               <button class="btn btn-primary btn-wide" id="btnSaveNew" data-i18n="img_save_new">Save as new</button>
               <button class="btn btn-wide" id="btnSaveVariant" data-i18n="img_save_variant">Save as variant</button>
+              <button class="btn btn-wide" id="btnSaveMap" data-i18n="img_save_map">Save as map</button>
+              <button class="btn btn-wide" id="btnImportMap2" data-i18n="img_import_map">Add map from file</button>
               <button class="btn btn-wide" id="btnOpenAssets2" data-i18n="img_open_assets">Open Assets folder</button>
+              <button class="btn btn-wide" id="btnOpenMaps2" data-i18n="img_open_maps">Open Maps folder</button>
               <div class="hint" data-i18n="img_variant_hint">Variants let one name match several looks (hover, pressed, different scale).</div>
             </div>
           </div>
@@ -271,7 +282,7 @@
 
         <div class="card">
           <div class="card-head">
-            <div class="section-label" data-i18n="img_templates">Templates</div>
+            <div class="section-label" data-i18n="img_templates">Images and maps</div>
             <div class="card-head-actions">
               <div class="conf-row" id="confRow">
                 <span class="flab" id="confLabel" data-i18n="img_test_conf">Test confidence</span>
@@ -337,6 +348,24 @@
                 <input class="inp inp-num" type="number" id="setLoopCount" min="1" step="1" value="1">
                 <span class="sval"></span>
               </div>
+              <div class="setting-row">
+                <span class="slabel" data-i18n="set_roblox_share">Roblox share link</span>
+                <input class="inp" type="text" id="setRobloxShare" spellcheck="false" autocomplete="off">
+                <span class="sval"></span>
+              </div>
+              <div class="setting-row">
+                <span class="slabel" data-i18n="set_roblox_place">Roblox place id</span>
+                <input class="inp" type="text" id="setRobloxPlace" spellcheck="false" autocomplete="off">
+                <span class="sval"></span>
+              </div>
+              <div class="setting-row">
+                <span class="slabel" data-i18n="set_roblox_code">Private server code</span>
+                <input class="inp" type="text" id="setRobloxCode" spellcheck="false" autocomplete="off">
+                <span class="sval"></span>
+              </div>
+              <div class="hint" data-i18n="set_roblox_hint">
+                Used by the Rejoin Server block whenever its own fields are left empty. A share link is enough on its own — the id and the code below are only for the older form of joining.
+              </div>
               <div class="hint" data-i18n="set_conf_moved">
                 Match confidence now lives on the Images screen as “Test confidence”, next to the Test buttons it drives.
               </div>
@@ -387,6 +416,30 @@
                 <input class="inp" id="hookUser" spellcheck="false" placeholder="Macro Studio">
               </label>
 
+              <div class="hook-design-grid">
+                <label class="field">
+                  <span class="flab" data-i18n="hook_design_title">Embed title</span>
+                  <input class="inp" id="hookTitle" maxlength="256" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span class="flab" data-i18n="hook_design_color">Accent color</span>
+                  <input class="hook-color" id="hookColor" type="color" value="#8b5cf6">
+                </label>
+                <label class="field">
+                  <span class="flab" data-i18n="hook_design_footer">Footer</span>
+                  <input class="inp" id="hookFooter" maxlength="2048" spellcheck="false">
+                </label>
+              </div>
+              <label class="field field-block">
+                <span class="flab" data-i18n="hook_design_description">Default description</span>
+                <textarea class="inp hook-description" id="hookDescription" maxlength="4096" spellcheck="false"></textarea>
+              </label>
+              <label class="switch-row">
+                <span class="switch"><input type="checkbox" id="hookTimestamp"><span class="slider"></span></span>
+                <span data-i18n="hook_design_timestamp">Show timestamp in embed</span>
+              </label>
+              <div class="hint" data-i18n="hook_design_hint">The Send Webhook block message overrides the default description. These styles are used by the test and by every webhook block.</div>
+
               <div class="hook-actions">
                 <button class="btn btn-sm btn-primary" id="btnHookSave" data-i18n="hook_save_url">Save URL</button>
                 <button class="btn btn-sm" id="btnHookTest" data-i18n="hook_test">Send test message</button>
@@ -416,6 +469,19 @@
             </div>
           </div>
 
+          <!-- Deep Debug / Run Statistics -->
+          <div class="card" id="statsCard">
+            <div class="card-head">
+              <div class="section-label">Deep Debug — Statistics</div>
+              <div class="card-head-actions">
+                <button class="btn btn-sm" id="btnResetStats">Reset</button>
+              </div>
+            </div>
+            <div class="health-list" id="statsList">
+              <div class="empty">Run the macro to collect statistics.</div>
+            </div>
+          </div>
+
         </div>
       </section>
 
@@ -434,14 +500,28 @@
     <div class="log-body" id="logBody"></div>
   </div>
 
+  <!-- ======================================================= debug panel -->
+  <div class="debug-panel hidden" id="debugPanel">
+    <div class="debug-panel-head">
+      <span class="debug-block-name" id="debugBlockName">—</span>
+      <span class="debug-step-info" id="debugStepInfo"></span>
+      <span class="flex-spacer"></span>
+    </div>
+    <div class="debug-vars" id="debugVars"></div>
+  </div>
+
   <!-- ====================================================== control bar -->
   <footer class="controlbar">
     <button class="cbtn cbtn-start" id="btnStart"><svg class="ic ic-sm"><use href="#i-play"></use></svg><span data-i18n="ctl_start">Start</span></button>
     <button class="cbtn" id="btnPause" disabled><svg class="ic ic-sm"><use href="#i-pause"></use></svg><span>Pause</span></button>
     <button class="cbtn cbtn-stop" id="btnStop" disabled><svg class="ic ic-sm"><use href="#i-stop"></use></svg><span data-i18n="ctl_stop">Stop</span></button>
+    <button class="cbtn" id="btnDebug" title="Step through blocks one by one"><svg class="ic ic-sm"><use href="#i-bug"></use></svg><span>Debug</span></button>
+    <button class="cbtn btn-primary" id="btnDebugStep" style="display:none">Step ▶</button>
 
     <div class="status-readout">
       <span class="run-dot" id="runDot"></span>
+      <span class="status-time" id="statusTime" title="">0:00</span>
+      <span class="status-sep"></span>
       <span class="status-action" id="statusAction" data-i18n="ctl_idle">Idle</span>
       <span class="status-sep"></span>
       <span class="status-loop" id="statusLoop">loop 0</span>
@@ -450,6 +530,35 @@
     <span class="flex-spacer"></span>
     <span class="status-meta" id="statusMeta"></span>
   </footer>
+</div>
+
+<div class="overlay hidden" id="paletteModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" data-i18n="palette_manage">Custom block palettes</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnPaletteClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body palette-manager-body">
+      <div class="palette-manager-toolbar">
+        <input class="inp" id="paletteName" data-i18n-ph="palette_name_ph" placeholder="Palette name" spellcheck="false">
+        <button class="btn btn-primary" id="btnPaletteSave" data-i18n="palette_save">Save palette</button>
+        <button class="btn" id="btnPaletteNew" data-i18n="palette_new">New</button>
+        <button class="btn" id="btnPaletteImport" data-i18n="palette_import">Import</button>
+        <button class="btn" id="btnPaletteFolder" data-i18n="palette_folder">Open folder</button>
+      </div>
+      <div class="hint" data-i18n="palette_hint_manage">Choose the blocks to include. Palettes contain only block types, so they are safe to share.</div>
+      <div class="palette-editor-grid" id="paletteEditorGrid"></div>
+      <div class="section-label palette-saved-label" data-i18n="palette_saved">Saved palettes</div>
+      <div class="palette-saved-list" id="paletteSavedList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnPaletteAll" data-i18n="palette_select_all">Select all</button>
+      <button class="btn" id="btnPaletteNone" data-i18n="palette_select_none">Select none</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnPaletteDone" data-i18n="btn_done">Done</button>
+    </div>
+  </div>
 </div>
 
 <!-- ================================================================ modals -->
@@ -516,9 +625,31 @@
       <span class="hint bigview-hint" id="bigViewHint">Left-drag crops · middle-drag pans · ctrl+wheel zooms.</span>
       <span class="flex-spacer"></span>
       <button class="btn" id="btnBigViewClear" data-i18n="big_clear_sel">Clear selection</button>
+      <button class="btn" id="btnBigViewMap" data-i18n="img_save_map">Save as map</button>
       <button class="btn" id="btnBigViewVariant">Save as variant</button>
       <button class="btn btn-primary" id="btnBigViewSave">Save as new</button>
       <button class="btn btn-secondary" id="btnBigViewDone" data-i18n="btn_done">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asked before every screenshot: which window is being photographed. -->
+<div class="overlay hidden" id="winPickModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" data-i18n="winpick_title">Which window should be captured?</span>
+      <span class="flex-spacer"></span>
+      <input class="inp inp-sm" id="winPickFilter" data-i18n-ph="winpick_filter_ph" placeholder="Filter by title or process..." spellcheck="false" autocomplete="off">
+      <button class="btn btn-sm" id="btnWinPickRefresh"><svg class="ic ic-xs"><use href="#i-refresh"></use></svg> <span data-i18n="btn_refresh">Refresh</span></button>
+      <button class="iconbtn" id="btnWinPickClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hint" data-i18n="winpick_hint">Only for this screenshot — the macro target is not changed.</div>
+      <div class="winpick-list" id="winPickList"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnWinPickCancel" data-i18n="btn_cancel">Cancel</button>
     </div>
   </div>
 </div>
@@ -545,10 +676,64 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="mapPickModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" data-i18n="mappick_title">Pick the spot on the map</span>
+      <button class="btn btn-sm mappick-choose" id="btnMapPickChoose" type="button"><svg class="ic ic-xs"><use href="#i-image"></use></svg><span class="mappick-choose-name" id="mapPickChosenName" data-i18n="mapgal_none">choose a map...</span><span class="mappick-choose-caret">&#9662;</span></button>
+      <span class="readout" id="mapPickCurrent" data-i18n="mappick_no_spot">no spot yet</span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnMapPickClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hint" data-i18n="mappick_hint">Click the picture where the unit goes.</div>
+      <div class="map-holder" id="mapPickHolder">
+        <div class="empty" id="mapPickEmpty" data-i18n="mappick_empty">No maps yet.</div>
+        <div class="map-stage">
+          <img class="map-img hidden" id="mapPickImg" alt="">
+          <div class="map-marks" id="mapPickMarks"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnMapPickImport" data-i18n="mappick_import">Add picture</button>
+      <button class="btn" id="btnMapPickFolder" data-i18n="mappick_folder">Maps folder</button>
+      <button class="btn btn-ghost-danger" id="btnMapPickClear" data-i18n="mappick_clear">Clear spot</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnMapPickCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" id="btnMapPickApply" data-i18n="mappick_apply">Use this spot</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="mapGalleryModal">
+  <div class="modal modal-wide">
+    <div class="modal-head">
+      <span class="section-label" data-i18n="mapgal_title">Your maps</span>
+      <input class="inp inp-sm tplpick-filter" id="mapGalFilter" type="text" spellcheck="false" data-i18n-ph="mapgal_filter_ph" placeholder="filter by name...">
+      <span class="readout" id="mapGalCount"></span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnMapGalClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hint" data-i18n="mapgal_hint">Pick the map to place the unit on.</div>
+      <div class="tplpick-grid mapgal-grid" id="mapGalGrid"></div>
+      <div class="empty hidden" id="mapGalEmpty" data-i18n="mapgal_empty">No maps yet.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnMapGalImport" data-i18n="mappick_import">Add picture</button>
+      <button class="btn" id="btnMapGalFolder" data-i18n="mappick_folder">Maps folder</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnMapGalCancel" data-i18n="btn_cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay hidden" id="blocksEditModal">
   <div class="modal modal-huge">
     <div class="modal-head">
       <span class="section-label" id="blocksEditTitle" data-i18n="blocks_edit_title">Fallback blocks</span>
+      <input class="inp inp-sm hidden" id="blocksEditCustomName" placeholder="Custom block name" spellcheck="false" autocomplete="off">
       <span class="readout" id="blocksEditSub">—</span>
       <span class="flex-spacer"></span>
       <button class="iconbtn" id="btnBlocksEditClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
@@ -649,6 +834,42 @@
       <span class="flex-spacer"></span>
       <button class="btn" id="btnTextCancel" data-i18n="btn_cancel">Cancel</button>
       <button class="btn btn-primary" id="btnTextOk" data-i18n="btn_ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="groupModal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="section-label" data-i18n="grp_title">Saved block groups</span>
+      <input class="inp inp-sm tplpick-filter" id="grpFilter" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="grp_filter_ph" placeholder="filter by name...">
+      <span class="readout" id="grpTarget"></span>
+      <span class="flex-spacer"></span>
+      <button class="iconbtn" id="btnGrpClose" data-i18n-title="btn_close"><svg class="ic ic-xs"><use href="#i-close"></use></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="hint" data-i18n="grp_hint">Adds the group's blocks to the end of the chosen phase. They are copies -- editing them here changes nothing in the saved group.</div>
+      <div class="grp-list" id="grpList"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="btnGrpFolder" data-i18n="grp_folder">Groups folder</button>
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnGrpCancel" data-i18n="btn_cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="promptModal">
+  <div class="modal">
+    <div class="modal-head"><span class="section-label" id="promptTitle">Name</span></div>
+    <div class="modal-body">
+      <div class="confirm-text" id="promptText"></div>
+      <input class="inp" id="promptInput" type="text" spellcheck="false" autocomplete="off">
+    </div>
+    <div class="modal-foot">
+      <span class="flex-spacer"></span>
+      <button class="btn" id="btnPromptCancel" data-i18n="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" id="btnPromptOk" data-i18n="btn_save">Save</button>
     </div>
   </div>
 </div>

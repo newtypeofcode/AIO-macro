@@ -16,6 +16,7 @@ import webbrowser
 from core import constants
 from core import settings as settingsmod
 from core import window as wm
+from core.i18n import tr
 
 constants.ensure_dirs()
 wm.set_dpi_aware()
@@ -23,6 +24,7 @@ wm.set_dpi_aware()
 GUI_TITLE = "Macro Studio"
 GUI_WIDTH = 1500
 GUI_HEIGHT = 900
+GUI_MIN_SIZE = (900, 600)
 LOG_HISTORY_LIMIT = 500
 
 HOTKEY_ACTIONS = ("hotkey_start", "hotkey_stop", "hotkey_pause",
@@ -49,8 +51,13 @@ class Api:
         self._on_hotkeys_changed = None
         self._picking = False
         self._pick_result = None
+        # Run statistics (deep debug)
+        self._run_stats = {"runs": 0, "errors": 0, "total_s": 0.0, "last_error": ""}
+        self._run_start_time = None
+        self._was_running = False
         self._capture_cache = None
         self._capture_cache_hwnd = None
+        self._capture_ref = None
         self._maximized = False
         self._gui_hwnd = 0
         # Serialises target changes against the status poll, which also
@@ -112,14 +119,14 @@ class Api:
         except Exception as exc:
             # core.ocr imports cv2/numpy at module level; a broken install
             # must degrade to "no OCR", not blank the app.
-            engine = "unavailable"
-            self.push_log("OCR unavailable: %s" % exc)
+            engine = tr("unavailable")
+            self.push_log(tr("OCR unavailable: %s") % exc)
 
         def safe(fn, fallback):
             try:
                 return fn()
             except Exception as exc:
-                self.push_log("Startup: %s" % exc)
+                self.push_log(tr("Startup: %s") % exc)
                 return fallback
 
         return {
@@ -130,6 +137,8 @@ class Api:
             "settings": safe(settingsmod.load, dict(settingsmod.DEFAULTS)),
             "macros": safe(tpl.list_macros, []),
             "recordings": safe(tpl.list_recordings, []),
+            "groups": safe(self.list_block_groups, []),
+            "palettes": safe(self.list_block_palettes, []),
             "logs": self._log_history[-120:],
             "ocr_engine": engine,
             "display_scale": safe(wm.get_display_scale_percent, 100),
@@ -149,13 +158,32 @@ class Api:
             pass
 
     def _own_hwnd(self) -> int:
-        """Our own window handle, found by title and cached.
+        """Our own window handle, cached.
 
-        pywebview does not expose it, and the frameless drag/resize helpers
-        need a real HWND to post messages to.
+        Asked of the native window object FIRST. Searching by title was the
+        only route before, and it picks the wrong window whenever anything
+        else on the desktop carries the same title -- including a second copy
+        of this app, whose title bar then dragged the first one. The title
+        search stays as the fallback for backends with no native handle.
         """
         if self._gui_hwnd and wm.is_window(self._gui_hwnd):
             return self._gui_hwnd
+
+        native = getattr(self._window, "native", None) if self._window else None
+        for attr in ("Handle", "handle", "winId", "hwnd"):
+            value = getattr(native, attr, None)
+            if value is None:
+                continue
+            try:
+                if callable(value):
+                    value = value()
+                hwnd = int(value.ToInt64()) if hasattr(value, "ToInt64") else int(value)
+            except Exception:
+                continue
+            if hwnd and wm.is_window(hwnd):
+                self._gui_hwnd = hwnd
+                return hwnd
+
         self._gui_hwnd = wm.find_own_window(GUI_TITLE)
         return self._gui_hwnd
 
@@ -169,8 +197,15 @@ class Api:
         hwnd = self._own_hwnd()
         if not hwnd:
             return False
+        if self._maximized:
+            # A maximised window cannot be moved: restore it first, exactly
+            # like every native title bar does, or the drag does nothing.
+            try:
+                self._window.restore()
+            except Exception:
+                pass
         self._maximized = False
-        return wm.begin_native_drag(hwnd)
+        return wm.begin_native_drag(hwnd, min_size=GUI_MIN_SIZE)
 
     def begin_window_resize(self, edge: str) -> bool:
         """Hand the resize to Windows itself, from the named edge/corner."""
@@ -178,7 +213,7 @@ class Api:
         if not hwnd:
             return False
         self._maximized = False
-        return wm.begin_native_resize(hwnd, edge)
+        return wm.begin_native_resize(hwnd, edge, min_size=GUI_MIN_SIZE)
 
     def toggle_maximize(self) -> dict:
         """The window is frameless, so the OS provides no maximise button --
@@ -209,8 +244,10 @@ class Api:
                 pass
 
     def open_data_folder(self) -> bool:
+        # DATA_DIR, not the app folder: settings, macros, templates and
+        # assets all live in %APPDATA% now.
         try:
-            os.startfile(constants.APP_DIR)
+            os.startfile(constants.DATA_DIR)
             return True
         except Exception:
             return False
@@ -244,8 +281,15 @@ class Api:
         # it would let a crop be saved from a completely different app.
         self._capture_cache = None
         self._capture_cache_hwnd = None
+        self._capture_ref = None
         self._status["target"] = title
-        self.push_log("Target set: %s" % (title or "whole screen"))
+        # Not tr("Target set: %s") % "whole screen": a bare English noun
+        # dropped into a translated sentence is exactly what the dedicated
+        # message below exists to avoid.
+        if title:
+            self.push_log(tr("Target set: %s") % title)
+        else:
+            self.push_log(tr("Target set: whole screen"))
         return {"ok": True, "hwnd": hwnd, "title": title, **self.get_target_info()}
 
     def use_screen_target(self) -> dict:
@@ -254,8 +298,9 @@ class Api:
                                 "target_title": ""})
         self._capture_cache = None
         self._capture_cache_hwnd = None
-        self._status["target"] = "Screen"
-        self.push_log("Target set: whole screen")
+        self._capture_ref = None
+        self._status["target"] = tr("Whole screen")
+        self.push_log(tr("Target set: whole screen"))
         return {"ok": True, **self.get_target_info()}
 
     def get_target_info(self) -> dict:
@@ -264,7 +309,10 @@ class Api:
         mode = cfg.get("target_mode", "window")
         if mode == "screen" or not hwnd:
             sw, sh = wm.get_screen_size()
-            return {"mode": "screen", "hwnd": 0, "title": "Whole screen",
+            # The title is shown as-is in the header and the status bar; the
+            # frontend only reaches for its own wording when this is empty,
+            # and it never is.
+            return {"mode": "screen", "hwnd": 0, "title": tr("Whole screen"),
                     "alive": True, "minimized": False, "width": sw, "height": sh}
         alive = wm.is_window(hwnd)
         if not alive:
@@ -320,11 +368,11 @@ class Api:
         self._recorder.suppress([cfg.get(a) for a in HOTKEY_ACTIONS])
         ok = self._recorder.start(hwnd=hwnd,
                                   record_moves=bool(cfg.get("record_mouse_move", True)),
-                                  move_interval_ms=int(cfg.get("record_move_interval_ms", 40)))
+                                  move_interval_ms=int(cfg.get("record_move_interval_ms", 8)))
         if not ok:
             return {"ok": False, "reason": "listener_failed"}
         self._status["recording"] = True
-        self.push_log("Recording started -- do the actions, then press stop.")
+        self.push_log(tr("Recording started -- do the actions, then press stop."))
         self.push_ui("onRecordingStarted")
         return {"ok": True}
 
@@ -334,19 +382,26 @@ class Api:
         if not self._recorder.active:
             return {"ok": False, "reason": "not_recording"}
         events = self._recorder.stop()
+        cfg = settingsmod.load()
         self._status["recording"] = False
         self._pending_events = events
         self._pending_meta = {"count": len(events)}
-        self.push_log("Recording stopped: %d events." % len(events))
+        self.push_log(tr("Recording stopped: %d events.") % len(events))
         self.push_ui("onRecordingStopped")
+        # The saved recorder options, NOT the defaults: previewing a fresh
+        # take with keep_moves off meant the mouse movement the user had just
+        # recorded was missing from Converted blocks until something else
+        # refreshed the list (saving did).
         return {"ok": True, "count": len(events),
-                "preview": self.preview_pending_blocks()}
+                "preview": self.preview_pending_blocks(
+                    keep_moves=bool(cfg.get("record_mouse_move", True)),
+                    min_gap_ms=int(cfg.get("record_min_gap_ms", 60) or 0))}
 
     def cancel_recording(self) -> dict:
         self._recorder.cancel()
         self._status["recording"] = False
         self._pending_events = []
-        self.push_log("Recording discarded.")
+        self.push_log(tr("Recording discarded."))
         self.push_ui("onRecordingStopped")
         return {"ok": True}
 
@@ -372,9 +427,9 @@ class Api:
         try:
             saved = tpl.save_recording(name, self._pending_events)
         except OSError as exc:
-            self.push_log("Could not save recording: %s" % exc)
+            self.push_log(tr("Could not save recording: %s") % exc)
             return {"ok": False, "reason": str(exc)}
-        self.push_log("Recording saved as '%s'." % saved)
+        self.push_log(tr("Recording saved as '%s'.") % saved)
         return {"ok": True, "name": saved, "recordings": tpl.list_recordings()}
 
     def discard_pending_recording(self) -> dict:
@@ -443,16 +498,16 @@ class Api:
         try:
             saved = tpl.update_recording_blocks(name, blockmod.normalize_list(blocks))
         except FileNotFoundError:
-            self.push_log("Recording '%s' no longer exists -- nothing saved." % name)
+            self.push_log(tr("Recording '%s' no longer exists -- nothing saved.") % name)
             return {"ok": False, "reason": "missing"}
         except OSError as exc:
-            self.push_log("Could not save recording actions: %s" % exc)
+            self.push_log(tr("Could not save recording actions: %s") % exc)
             return {"ok": False, "reason": str(exc)}
         count = len(blocks or [])
         if count:
-            self.push_log("Recording '%s': %d action(s) saved." % (saved, count))
+            self.push_log(tr("Recording '%s': %d action(s) saved.") % (saved, count))
         else:
-            self.push_log("Recording '%s': all actions removed -- it will now do nothing."
+            self.push_log(tr("Recording '%s': all actions removed -- it will now do nothing.")
                           % saved)
         return {"ok": True, "name": saved}
 
@@ -466,7 +521,7 @@ class Api:
             tpl.save_recording(name, data.get("events") or [], None)
         except OSError as exc:
             return {"ok": False, "reason": str(exc)}
-        self.push_log("Recording '%s' reset to the original events." % name)
+        self.push_log(tr("Recording '%s' reset to the original events.") % name)
         return self.get_recording_actions(name)
 
     # --------------------------------------------------------------- macros
@@ -482,9 +537,9 @@ class Api:
         except OSError as exc:
             # An escaping OSError reaches JS as a silent null, and the UI's
             # debounced autosave would then discard edits without a word.
-            self.push_log("Could not save macro: %s" % exc)
+            self.push_log(tr("Could not save macro: %s") % exc)
             return {"ok": False, "reason": str(exc)}
-        self.push_log("Macro '%s' saved." % saved)
+        self.push_log(tr("Macro '%s' saved.") % saved)
         return {"ok": True, "name": saved, "macros": tpl.list_macros()}
 
     def load_macro(self, name: str) -> dict:
@@ -526,13 +581,13 @@ class Api:
                 path = path[0]
             report = bundle.export(macro, path)
         except Exception as exc:
-            self.push_log("Export failed: %s" % exc)
+            self.push_log(tr("Export failed: %s") % exc)
             return {"ok": False, "reason": str(exc)}
-        self.push_log("Exported '%s': %d image(s), %d recording(s)."
+        self.push_log(tr("Exported '%s': %d image(s), %d recording(s).")
                       % (os.path.basename(path), len(report["images"]),
                          len(report["recordings"])))
         if report["missing_images"] or report["missing_recordings"]:
-            self.push_log("   missing and not included: %s"
+            self.push_log(tr("   missing and not included: %s")
                           % ", ".join(report["missing_images"]
                                       + report["missing_recordings"]))
         return report
@@ -569,17 +624,17 @@ class Api:
         try:
             report = bundle.import_bundle(path, bool(overwrite))
         except Exception as exc:
-            self.push_log("Import failed: %s" % exc)
+            self.push_log(tr("Import failed: %s") % exc)
             return {"ok": False, "reason": str(exc)}
-        self.push_log("Imported %d image(s), %d recording(s)."
+        self.push_log(tr("Imported %d image(s), %d recording(s).")
                       % (len(report["images"]), len(report["recordings"])))
         for label, names in (("images", report["skipped_images"]),
                              ("recordings", report["skipped_recordings"])):
             if names:
-                self.push_log("   kept your existing %s: %s"
+                self.push_log(tr("   kept your existing %s: %s")
                               % (label, ", ".join(names)))
         if report["rejected"]:
-            self.push_log("   refused %d unexpected entr(y/ies) in the bundle"
+            self.push_log(tr("   refused %d unexpected entr(y/ies) in the bundle")
                           % len(report["rejected"]))
         from core import templates as tpl
         report["recordings_list"] = tpl.list_recordings()
@@ -596,7 +651,7 @@ class Api:
                 path = path[0]
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(macro, fh, indent=2, ensure_ascii=False)
-            self.push_log("Exported to %s" % path)
+            self.push_log(tr("Exported to %s") % path)
             return {"ok": True, "path": path}
         except Exception as exc:
             return {"ok": False, "reason": str(exc)}
@@ -621,7 +676,7 @@ class Api:
             return {"ok": False, "reason": "recording"}
         info = self.get_target_info()
         if info["mode"] == "window" and not info["alive"]:
-            self.push_log("Target window is not available.")
+            self.push_log(tr("Target window is not available."))
             return {"ok": False, "reason": "no_target"}
         cfg = settingsmod.load()
         self._status["target"] = info["title"]
@@ -648,10 +703,49 @@ class Api:
         status["paused"] = self.runner.is_paused()
         status["recording"] = bool(self._recorder.active)
         status["rec_count"] = self.recording_event_count()
+        stats = self.runner.run_stats()
+        # Seconds, not a formatted string: the control bar counts on locally
+        # between polls and formats it in the user's own layout.
+        status["elapsed_s"] = round(float(stats.get("elapsed_s", 0.0)), 1)
+        status["passes"] = int(stats.get("passes", 0))
+        status["watch_fires"] = int(stats.get("watch_fires", 0))
         info = self.get_target_info()
         status["target"] = info["title"]
         status["target_alive"] = info["alive"]
+        # Track run lifecycle for deep-debug statistics
+        is_running = status["running"]
+        if is_running and not self._was_running:
+            self._run_start_time = time.time()
+        elif not is_running and self._was_running:
+            if self._run_start_time is not None:
+                self._run_stats["runs"] += 1
+                self._run_stats["total_s"] += time.time() - self._run_start_time
+                self._run_start_time = None
+        self._was_running = is_running
+        # The runner parks this word back here when a run ends, so the bridge
+        # is the one place both it and the startup value can be turned into
+        # the user's language.
+        if status["action"] == "Idle":
+            status["action"] = tr("Idle")
         return status
+
+    def get_run_stats(self) -> dict:
+        """Return accumulated run statistics for the deep-debug panel."""
+        runs = self._run_stats["runs"]
+        total_s = self._run_stats["total_s"]
+        avg_s = round(total_s / runs, 1) if runs > 0 else 0.0
+        return {
+            "runs": runs,
+            "errors": self._run_stats["errors"],
+            "avg_s": avg_s,
+            "last_error": self._run_stats["last_error"]
+        }
+
+    def reset_run_stats(self) -> dict:
+        """Reset accumulated run statistics."""
+        self._run_stats = {"runs": 0, "errors": 0, "total_s": 0.0, "last_error": ""}
+        self._run_start_time = None
+        return {"ok": True}
 
     def run_single_block(self, block: dict) -> dict:
         """Test one row in isolation -- the fastest way to check a coordinate
@@ -696,13 +790,13 @@ class Api:
         try:
             listener = pmouse.Listener(on_click=on_click)
             listener.start()
-            self.push_log("Click anywhere to capture a coordinate...")
+            self.push_log(tr("Click anywhere to capture a coordinate..."))
             got = done.wait(timeout=30)
         except Exception as exc:
             # try/finally around the flag: a listener that fails to start
             # used to leave _picking stuck True, disabling the picker for the
             # rest of the session with no way back.
-            self.push_log("Coordinate picker failed: %s" % exc)
+            self.push_log(tr("Coordinate picker failed: %s") % exc)
             return {"ok": False, "reason": "listener_failed"}
         finally:
             try:
@@ -721,8 +815,29 @@ class Api:
             cx, cy = wm.screen_to_client(hwnd, sx, sy)
         else:
             cx, cy = sx, sy
-        self.push_log("Picked %d, %d" % (cx, cy))
+        self.push_log(tr("Picked %d, %d") % (cx, cy))
         return {"ok": True, "x": int(cx), "y": int(cy), "screen_x": sx, "screen_y": sy}
+
+    def pick_exe_path(self) -> dict:
+        """Open a file dialog so the user can browse for an executable."""
+        try:
+            import webview
+            paths = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Executable (*.exe)", "All files (*.*)"))
+            if not paths:
+                return {"ok": False, "reason": "cancelled"}
+            return {"ok": True, "path": paths[0]}
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+
+    def get_condition_types(self) -> list:
+        """Return condition type catalog for the UI condition builder."""
+        try:
+            from core.conditions import COND_TYPES
+            return COND_TYPES
+        except Exception:
+            return []
 
     def pick_color(self) -> dict:
         point = self.pick_point()
@@ -735,22 +850,132 @@ class Api:
         b, g, r = [int(v) for v in frame[0, 0][:3]]
         point["color"] = "#%02x%02x%02x" % (r, g, b)
         point["rgb"] = [r, g, b]
-        self.push_log("Picked colour %s" % point["color"])
+        self.push_log(tr("Picked colour %s") % point["color"])
         return point
 
     # ------------------------------------------------------- image manager
 
-    def capture_target_preview(self) -> dict:
-        """Freeze the target into a data URI the UI can crop on a canvas."""
+    def _hide_self_for_capture(self) -> bool:
+        """Get this window out of the shot.
+
+        Only matters in whole-screen mode: the grab is of the desktop, and
+        Macro Studio is sitting on top of it, so the crop the user wanted was
+        half our own UI. In window mode the target is captured directly and
+        hiding would only make the app flicker for nothing.
+        """
+        if self._window is None:
+            return False
+        try:
+            self._window.hide()
+        except Exception:
+            return False
+        # The compositor needs a moment to actually take the window off the
+        # screen; grabbing immediately still catches it.
+        time.sleep(0.35)
+        return True
+
+    def _show_self_after_capture(self, hidden: bool) -> None:
+        if not hidden or self._window is None:
+            return
+        try:
+            self._window.show()
+        except Exception:
+            pass
+
+    def capture_target_preview(self, hwnd=None) -> dict:
+        """Freeze a window into a data URI the UI can crop on a canvas.
+
+        hwnd is what the Images screen asks the user for before every shot:
+        None keeps the old behaviour (whatever the macro target is), 0 means
+        the whole screen, and any other handle is a one-off shot that must
+        NOT become the macro target -- picking a window to photograph is not
+        the same decision as picking the window a macro drives.
+        """
         from core import capture
-        hwnd = self._target_hwnd()
-        frame = capture.capture_target_bgr(hwnd)
+        hwnd = self._target_hwnd() if hwnd is None else int(hwnd or 0)
+        hidden = self._hide_self_for_capture() if not hwnd else False
+        try:
+            frame = capture.capture_target_bgr(hwnd)
+        finally:
+            self._show_self_after_capture(hidden)
         if frame is None:
             return {"ok": False, "reason": "capture_failed"}
         self._capture_cache = frame
         self._capture_cache_hwnd = hwnd
+        # Remembered now, while the window it came from is still known: a
+        # picture saved as a map has to say whether its pixels are screen
+        # pixels or window pixels, and nothing can tell afterwards.
+        self._capture_ref = capture.frame_reference(hwnd, frame)
         h, w = frame.shape[:2]
         return {"ok": True, "image": capture.png_data_uri(frame), "width": w, "height": h}
+
+    def _capture_is_live(self) -> bool:
+        """Is the cached shot still worth cropping?
+
+        Only the shot window is checked -- the frame itself is cached, so its
+        crop coordinates can never drift, and since the shot is now aimed by
+        hand it is no longer wrong for it to differ from the macro target.
+        A closed window is still refused: its handle is what "Re-capture"
+        would shoot next, and the reason tells the UI to ask again.
+        """
+        if self._capture_cache is None:
+            return False
+        hwnd = self._capture_cache_hwnd or 0
+        return not hwnd or wm.is_window(hwnd)
+
+    def save_map_crop(self, name: str, x: int = 0, y: int = 0, w: int = 0,
+                      h: int = 0, whole: bool = False) -> dict:
+        """Save the cached shot (or a crop of it) into Maps as a map picture.
+
+        The same capture the templates come from, written to the other folder:
+        a map is normally the whole game window, so `whole` skips the crop
+        rectangle instead of making the user drag one around the full frame.
+        """
+        from core import maps
+
+        if self._capture_cache is None:
+            return {"ok": False, "reason": "no_capture"}
+        if not self._capture_is_live():
+            return {"ok": False, "reason": "stale_capture"}
+        safe = maps.safe_name(name)
+        if not safe:
+            return {"ok": False, "reason": "bad_name"}
+        frame = self._capture_cache
+        fh, fw = frame.shape[:2]
+        if whole:
+            crop = frame
+        else:
+            try:
+                x, y, w, h = int(x), int(y), int(w), int(h)
+            except (TypeError, ValueError):
+                return {"ok": False, "reason": "bad_region"}
+            if w < 2 or h < 2 or x < 0 or y < 0 or x + w > fw or y + h > fh:
+                return {"ok": False, "reason": "bad_region"}
+            crop = frame[y:y + h, x:x + w]
+        # The crop's own offset inside the shot travels with it, so a map cut
+        # out of one corner still knows where that corner is; without it every
+        # cropped map would be read as if it started at the shot's origin.
+        meta = None
+        ref = getattr(self, "_capture_ref", None)
+        if ref:
+            ch, cw = crop.shape[:2]
+            off_x, off_y = (0, 0) if whole else (x, y)
+            meta = dict(ref)
+            meta["left"] = int(ref.get("left", 0)) + int(off_x)
+            meta["top"] = int(ref.get("top", 0)) + int(off_y)
+            meta["width"], meta["height"] = int(cw), int(ch)
+
+        # Overwriting is deliberate here: re-shooting a map by its own name is
+        # the repair for "the map picture is out of date", and the blocks that
+        # point at that name must follow the new picture.
+        saved = maps.save_map_frame(safe, crop, overwrite=maps.exists(safe),
+                                    meta=meta)
+        if not saved:
+            return {"ok": False, "reason": "write_failed"}
+        safe, width, height = saved
+        self.push_log(tr("Saved map '%s' (%dx%d).") % (safe, width, height))
+        return {"ok": True, "name": safe, "width": width, "height": height,
+                "maps": maps.list_maps()}
 
     @staticmethod
     def _safe_template_name(name: str) -> str:
@@ -770,9 +995,7 @@ class Api:
 
         if self._capture_cache is None:
             return {"ok": False, "reason": "no_capture"}
-        if self._capture_cache_hwnd != self._target_hwnd():
-            # The target changed since the preview was taken; cropping it
-            # would silently save a piece of the previous window.
+        if not self._capture_is_live():
             return {"ok": False, "reason": "stale_capture"}
         safe = self._safe_template_name(name)
         if not safe:
@@ -809,7 +1032,7 @@ class Api:
         if not vision.imwrite_unicode(path, crop):
             return {"ok": False, "reason": "write_failed"}
         vision.clear_cache()
-        self.push_log("Saved image '%s' (%dx%d)." % (os.path.basename(path), w, h))
+        self.push_log(tr("Saved image '%s' (%dx%d).") % (os.path.basename(path), w, h))
         return {"ok": True, "path": path, "templates": vision.list_templates()}
 
     def list_templates(self) -> list:
@@ -887,6 +1110,201 @@ class Api:
         except Exception:
             return False
 
+    # -------------------------------------------------------- block groups
+
+    def list_block_groups(self) -> list:
+        from core import snippets
+        return snippets.list_groups()
+
+    def save_block_group(self, name: str, blocks: list) -> dict:
+        """Store a reusable list of blocks under a name.
+
+        Normalised on the way in, so a group saved by this build still opens
+        after a field is added to one of its block types -- the same contract
+        a saved macro gets.
+        """
+        from core import blocks as blockmod
+        from core import snippets
+        cleaned = blockmod.normalize_list(blocks)
+        if not cleaned:
+            return {"ok": False, "reason": "empty"}
+        try:
+            saved = snippets.save_group(name, cleaned)
+        except (OSError, ValueError) as exc:
+            self.push_log(tr("Could not save the block group: %s") % exc)
+            return {"ok": False, "reason": str(exc)}
+        self.push_log(tr("Block group '%s' saved (%d block(s)).")
+                      % (saved, len(cleaned)))
+        return {"ok": True, "name": saved, "count": len(cleaned),
+                "groups": snippets.list_groups()}
+
+    def load_block_group(self, name: str) -> dict:
+        from core import blocks as blockmod
+        from core import snippets
+        found = snippets.load_group(name)
+        if not found:
+            return {"ok": False, "reason": "missing"}
+        return {"ok": True, "name": snippets.safe_name(name),
+                "blocks": blockmod.normalize_list(found)}
+
+    def rename_block_group(self, name: str, new_name: str) -> dict:
+        from core import snippets
+        try:
+            saved = snippets.rename_group(name, new_name)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "reason": str(exc)}
+        if not saved:
+            return {"ok": False, "reason": "missing"}
+        return {"ok": True, "name": saved, "groups": snippets.list_groups()}
+
+    def delete_block_group(self, name: str) -> dict:
+        from core import snippets
+        ok = snippets.delete_group(name)
+        if ok:
+            self.push_log(tr("Block group '%s' deleted.")
+                          % snippets.safe_name(name))
+        return {"ok": ok, "groups": snippets.list_groups()}
+
+    def open_groups_folder(self) -> bool:
+        try:
+            os.makedirs(constants.GROUPS_DIR, exist_ok=True)
+            os.startfile(constants.GROUPS_DIR)
+            return True
+        except Exception:
+            return False
+
+    # ------------------------------------------------------- block palettes
+
+    def list_block_palettes(self) -> list:
+        from core import palettes
+        return palettes.list_palettes()
+
+    def save_block_palette(self, name: str, types: list) -> dict:
+        from core import blocks as blockmod
+        from core import palettes
+        allowed = {spec["type"] for spec in blockmod.catalog()}
+        clean = [str(value) for value in (types or []) if str(value) in allowed]
+        if not clean:
+            return {"ok": False, "reason": "empty"}
+        try:
+            saved = palettes.save_palette(name, clean)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "reason": str(exc)}
+        return {"ok": True, "palette": saved,
+                "palettes": palettes.list_palettes()}
+
+    def delete_block_palette(self, name: str) -> dict:
+        from core import palettes
+        ok = palettes.delete_palette(name)
+        return {"ok": ok, "palettes": palettes.list_palettes()}
+
+    def export_block_palette(self, name: str) -> dict:
+        from core import palettes
+        try:
+            import webview
+            path = self._window.create_file_dialog(
+                webview.SAVE_DIALOG, save_filename="%s.palette.json" % name,
+                file_types=("Block palette (*.palette.json;*.json)", "All files (*.*)"))
+            if not path:
+                return {"ok": False, "reason": "cancelled"}
+            if isinstance(path, (list, tuple)):
+                path = path[0]
+            saved = palettes.export_palette(name, path)
+            return {"ok": True, "path": path, "palette": saved}
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+
+    def import_block_palette(self) -> dict:
+        from core import blocks as blockmod
+        from core import palettes
+        try:
+            import webview
+            paths = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Block palette (*.palette.json;*.json)", "All files (*.*)"))
+            if not paths:
+                return {"ok": False, "reason": "cancelled"}
+            imported = palettes.import_palette(paths[0])
+            allowed = {spec["type"] for spec in blockmod.catalog()}
+            saved = palettes.save_palette(
+                imported["name"],
+                [value for value in imported.get("types", []) if value in allowed])
+            if not saved["types"]:
+                palettes.delete_palette(saved["name"])
+                return {"ok": False, "reason": "empty"}
+            return {"ok": True, "palette": saved,
+                    "palettes": palettes.list_palettes()}
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+
+    def open_palettes_folder(self) -> bool:
+        try:
+            os.makedirs(constants.PALETTES_DIR, exist_ok=True)
+            os.startfile(constants.PALETTES_DIR)
+            return True
+        except Exception:
+            return False
+
+    # ---------------------------------------------------------------- maps
+
+    def list_maps(self) -> list:
+        from core import maps
+        return maps.list_maps()
+
+    def get_map(self, name: str) -> dict:
+        """The map picture plus its pixel size, for the location picker."""
+        from core import maps
+        data = maps.read_map(name)
+        if not data:
+            return {"ok": False, "reason": "unreadable"}
+        uri, width, height = data
+        return {"ok": True, "name": maps.safe_name(name), "image": uri,
+                "width": width, "height": height}
+
+    def get_map_thumb(self, name: str, max_side: int = 320) -> dict:
+        """A small preview of a map, for the cards on the Images screen."""
+        from core import maps
+        data = maps.read_map(name, int(max_side or 0))
+        if not data:
+            return {"ok": False, "reason": "unreadable"}
+        uri, width, height = data
+        return {"ok": True, "name": maps.safe_name(name), "image": uri,
+                "width": width, "height": height}
+
+    def import_map(self, name: str = "") -> dict:
+        """Pick an image file and keep it in Maps as the map to place on."""
+        from core import maps
+        try:
+            import webview
+            paths = self._window.create_file_dialog(
+                webview.OPEN_DIALOG,
+                file_types=("Images (*.png;*.jpg;*.jpeg;*.bmp;*.webp)",
+                            "All files (*.*)"))
+            if not paths:
+                return {"ok": False, "reason": "cancelled"}
+            added = maps.import_map(paths[0], name)
+        except Exception as exc:
+            return {"ok": False, "reason": str(exc)}
+        if not added:
+            return {"ok": False, "reason": "unreadable"}
+        safe, width, height = added
+        self.push_log(tr("Saved map '%s' (%dx%d).") % (safe, width, height))
+        return {"ok": True, "name": safe, "width": width, "height": height,
+                "maps": maps.list_maps()}
+
+    def delete_map(self, name: str) -> dict:
+        from core import maps
+        ok = maps.delete_map(name)
+        return {"ok": ok, "maps": maps.list_maps()}
+
+    def open_maps_folder(self) -> bool:
+        try:
+            os.makedirs(constants.MAPS_DIR, exist_ok=True)
+            os.startfile(constants.MAPS_DIR)
+            return True
+        except Exception:
+            return False
+
     # ------------------------------------------------------------ settings
 
     def get_settings(self) -> dict:
@@ -901,11 +1319,17 @@ class Api:
         stay in whichever language the module was imported with.
         """
         from core import blocks as blockmod
+        from core import i18n
         try:
-            return blockmod.set_language(value)
+            language = blockmod.set_language(value)
         except Exception as exc:
-            self.push_log("Language: %s" % exc)
-            return blockmod.get_language()
+            self.push_log(tr("Language: %s") % exc)
+            language = blockmod.get_language()
+        # Log lines are translated from a separate table, so pointing only
+        # the catalog at the new language left the app talking in two at
+        # once: Russian tooltips over an English run log.
+        i18n.set_language(language)
+        return language
 
     def set_setting(self, key: str, value) -> dict:
         if key == "language":
@@ -942,10 +1366,17 @@ class Api:
             "configured": hook.validate(url)["valid"],
             "masked": hook.mask(url) if url else "",
             "username": cfg.get("webhook_username") or "Macro Studio",
+            "design": {
+                "title": cfg.get("webhook_title") or "Macro report",
+                "description": cfg.get("webhook_description") or "",
+                "color": cfg.get("webhook_color") or "#8b5cf6",
+                "footer": cfg.get("webhook_footer") or "Macro Studio",
+                "timestamp": bool(cfg.get("webhook_timestamp", True)),
+            },
         }
 
     def save_webhook_settings(self, url: str = None, enabled: bool = None,
-                              username: str = None) -> dict:
+                              username: str = None, design: dict = None) -> dict:
         """Each argument is optional so the UI can toggle `enabled` without
         having to resend (and therefore hold) the URL."""
         from core import webhook as hook
@@ -961,14 +1392,33 @@ class Api:
             changes["webhook_enabled"] = bool(enabled)
         if username is not None:
             changes["webhook_username"] = str(username)[:80]
+        if isinstance(design, dict):
+            if "title" in design:
+                changes["webhook_title"] = str(design["title"] or "")[:256]
+            if "description" in design:
+                changes["webhook_description"] = str(design["description"] or "")[:4096]
+            if "color" in design:
+                colour = str(design["color"] or "").strip()
+                if not colour.startswith("#"):
+                    colour = "#" + colour
+                try:
+                    int(colour[1:], 16)
+                    valid_colour = len(colour) == 7
+                except ValueError:
+                    valid_colour = False
+                changes["webhook_color"] = colour.lower() if valid_colour else "#8b5cf6"
+            if "footer" in design:
+                changes["webhook_footer"] = str(design["footer"] or "")[:2048]
+            if "timestamp" in design:
+                changes["webhook_timestamp"] = bool(design["timestamp"])
         if changes:
             settingsmod.update(changes)
-            self.push_log("Webhook settings updated.")
+            self.push_log(tr("Webhook settings updated."))
         return {"ok": True, **self.get_webhook_settings()}
 
     def clear_webhook_url(self) -> dict:
         settingsmod.update({"webhook_url": "", "webhook_enabled": False})
-        self.push_log("Webhook URL removed.")
+        self.push_log(tr("Webhook URL removed."))
         return {"ok": True, **self.get_webhook_settings()}
 
     def test_webhook(self) -> dict:
@@ -979,18 +1429,36 @@ class Api:
         check = hook.validate(url)
         if not check["valid"]:
             return {"ok": False, "reason": check["reason"]}
-        result = hook.send(url, "Macro Studio test message.",
+        stats = self.runner.run_stats()
+        embed = hook.build_embed(
+            title=cfg.get("webhook_title") or tr("Macro report"),
+            description=cfg.get("webhook_description") or "",
+            fields=[{"name": tr("Runtime"),
+                     "value": hook.format_duration(stats.get("elapsed_s", 0.0))},
+                    {"name": tr("Loop passes"),
+                     "value": str(stats.get("passes", 0))}],
+            footer=cfg.get("webhook_footer") or "Macro Studio",
+            color=cfg.get("webhook_color"),
+            timestamp=bool(cfg.get("webhook_timestamp", True)))
+        result = hook.send(url, tr("Macro Studio test message."), embed=embed,
                            username=cfg.get("webhook_username") or "Macro Studio")
-        self.push_log("Webhook test: %s"
-                      % ("delivered" if result.get("ok") else result.get("reason")))
+        # Only the failure branch substitutes: what comes back there is a
+        # machine code (not_https, http_404), and inventing Russian for it
+        # would hide the string the user has to quote when asking for help.
+        if result.get("ok"):
+            self.push_log(tr("Webhook test: delivered."))
+        else:
+            self.push_log(tr("Webhook test: %s") % result.get("reason"))
         return result
 
     def preview_webhook_source(self, source: str, region=None, template: str = "") -> dict:
         """What a Send Webhook block would attach, without sending anything."""
         from core import capture, vision, webhook as hook
         source = str(source or "none").strip().lower()
+        # `source` itself stays an English identifier -- it is stored inside
+        # saved macros -- but `detail` is only ever shown, so it translates.
         if source == "none":
-            return {"ok": True, "image": "", "detail": "text only"}
+            return {"ok": True, "image": "", "detail": tr("text only")}
         if source == "saved image":
             safe = self._safe_template_name(template)
             paths = vision.template_variant_paths(safe) if safe else []
@@ -998,7 +1466,7 @@ class Api:
                 return {"ok": False, "reason": "no_such_image"}
             img = vision.imread_unicode(paths[0])
             return {"ok": img is not None, "image": capture.png_data_uri(img),
-                    "detail": "image '%s'" % safe}
+                    "detail": tr("image '%s'") % safe}
 
         hwnd = self._target_hwnd() if source == "target window" else 0
         crop = None
@@ -1012,23 +1480,31 @@ class Api:
             return {"ok": False, "reason": "capture_failed"}
         data = hook.shrink_to_limit(frame)
         return {"ok": True, "image": capture.png_data_uri(frame),
-                "detail": "%dx%d, %.0f KB" % (frame.shape[1], frame.shape[0],
-                                               (len(data) if data else 0) / 1024.0)}
+                "detail": tr("%dx%d, %.0f KB")
+                          % (frame.shape[1], frame.shape[0],
+                             (len(data) if data else 0) / 1024.0)}
 
     def run_health_check(self) -> list:
+        """Six checks of the things a macro needs before it can work.
+
+        Every row is translated here rather than in the frontend: the panel
+        renders `name` and `detail` straight into the DOM as text, so there
+        is nothing on the JS side to translate them with, and the same rows
+        are what the log lines below are built from.
+        """
         from core import capture, ocr
         results = []
 
         info = self.get_target_info()
-        results.append({"name": "Target window",
+        results.append({"name": tr("Target window"),
                         "ok": info["alive"],
-                        "detail": info["title"] or "not selected"})
+                        "detail": info["title"] or tr("not selected")})
 
         frame = capture.capture_target_bgr(self._target_hwnd())
-        results.append({"name": "Screen capture",
+        results.append({"name": tr("Screen capture"),
                         "ok": frame is not None and bool(frame.any()),
                         "detail": ("%dx%d" % (frame.shape[1], frame.shape[0]))
-                                  if frame is not None else "no pixels"})
+                                  if frame is not None else tr("no pixels")})
 
         try:
             from core.mouse import Mouse
@@ -1038,29 +1514,37 @@ class Api:
             time.sleep(0.05)
             after = m.position()
             m.move_to(*before)
-            results.append({"name": "Synthetic input",
+            results.append({"name": tr("Synthetic input"),
                             "ok": after != before,
-                            "detail": "cursor moved" if after != before else "cursor did not move"})
+                            "detail": tr("cursor moved") if after != before
+                                      else tr("cursor did not move")})
         except Exception as exc:
-            results.append({"name": "Synthetic input", "ok": False, "detail": str(exc)})
+            # The only detail here that stays English: it is whatever the
+            # mouse backend raised, and there is no message to look up.
+            results.append({"name": tr("Synthetic input"), "ok": False,
+                            "detail": str(exc)})
 
         scale = wm.get_display_scale_percent()
-        results.append({"name": "Display scale", "ok": scale == 100,
-                        "detail": "%d%%%s" % (scale, "" if scale == 100
-                                              else " -- coordinates may drift")})
+        drift = "" if scale == 100 else tr(" -- coordinates may drift")
+        results.append({"name": tr("Display scale"), "ok": scale == 100,
+                        "detail": "%d%%%s" % (scale, drift)})
 
         engine = ocr.engine_name()
-        results.append({"name": "OCR engine", "ok": engine != "none", "detail": engine})
+        results.append({"name": tr("OCR engine"), "ok": engine != "none",
+                        "detail": engine})
 
         try:
             import pynput  # noqa: F401
-            results.append({"name": "Recorder hooks", "ok": True, "detail": "pynput ready"})
+            results.append({"name": tr("Recorder hooks"), "ok": True,
+                            "detail": tr("pynput ready")})
         except ImportError:
-            results.append({"name": "Recorder hooks", "ok": False, "detail": "pynput missing"})
+            results.append({"name": tr("Recorder hooks"), "ok": False,
+                            "detail": tr("pynput missing")})
 
         for row in results:
-            self.push_log("[Health] %s: %s (%s)"
-                          % (row["name"], "OK" if row["ok"] else "FAIL", row["detail"]))
+            verdict = tr("OK") if row["ok"] else tr("FAIL")
+            self.push_log(tr("[Health] %s: %s (%s)")
+                          % (row["name"], verdict, row["detail"]))
         return results
 
 
@@ -1069,6 +1553,7 @@ class Api:
 def run_diagnostics() -> None:
     print("Macro Studio %s -- diagnostics" % constants.get_version())
     print("APP_DIR:    %s" % constants.APP_DIR)
+    print("DATA_DIR:   %s" % constants.DATA_DIR)
     print("BUNDLE_DIR: %s" % constants.BUNDLE_DIR)
     print()
     print("1) List windows")
@@ -1118,11 +1603,12 @@ def _launch_ui() -> None:
     import webview
 
     api = Api()
-    api.push_log("Macro Studio %s starting..." % constants.get_version())
+    api.push_log(tr("Macro Studio %s starting...") % constants.get_version())
 
     scale = wm.get_display_scale_percent()
     if scale != 100:
-        api.push_log("Display scale is %d%% -- coordinates can drift; 100%% recommended." % scale)
+        api.push_log(tr("Display scale is %d%% -- coordinates can drift; "
+                        "100%% recommended.") % scale)
 
     index = os.path.join(constants.UI_DIR, "index.html")
     # frameless: the UI draws its own title bar with its own minimise /
@@ -1134,14 +1620,14 @@ def _launch_ui() -> None:
     window = webview.create_window(GUI_TITLE, url=index, js_api=api,
                                    width=GUI_WIDTH, height=GUI_HEIGHT,
                                    min_size=(900, 600), background_color="#0d0f18",
-                                   frameless=True, easy_drag=False)
+                                   frameless=True, easy_drag=False, resizable=True)
     api.set_window(window)
 
     def register_hotkeys(cfg=None):
         try:
             import keyboard as kb
         except ImportError:
-            api.push_log("Global hotkeys unavailable (keyboard package missing).")
+            api.push_log(tr("Global hotkeys unavailable (keyboard package missing)."))
             return
         cfg = cfg or settingsmod.load()
         try:
@@ -1163,13 +1649,13 @@ def _launch_ui() -> None:
             try:
                 kb.add_hotkey(key, fn, suppress=False)
             except (ValueError, ImportError, OSError) as exc:
-                api.push_log("Could not bind hotkey %r: %s" % (key, exc))
+                api.push_log(tr("Could not bind hotkey %r: %s") % (key, exc))
 
     api._on_hotkeys_changed = register_hotkeys
 
     def on_shown():
         register_hotkeys()
-        api.push_log("Ready. Pick a target window to begin.")
+        api.push_log(tr("Ready. Pick a target window to begin."))
 
     def on_closing():
         try:

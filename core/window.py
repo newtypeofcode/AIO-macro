@@ -7,6 +7,7 @@ moves or resizes that window. This module owns that translation.
 import ctypes
 from ctypes import wintypes
 import os
+import time
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -164,6 +165,23 @@ def is_minimized(hwnd) -> bool:
     return bool(user32.IsIconic(int(hwnd)))
 
 
+def restore_if_minimized(hwnd) -> bool:
+    """Restore an iconic target before a capture, without changing its size.
+
+    Capturing a minimized window produces an empty or stale frame on many
+    renderers.  Do this centrally so blocks, conditions, image tools and
+    webhook attachments all get the same behaviour.
+    """
+    hwnd = int(hwnd or 0)
+    if not hwnd or not is_minimized(hwnd):
+        return False
+    try:
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        return True
+    except Exception:
+        return False
+
+
 def list_windows(include_hidden: bool = False):
     """Every real top-level application window, for the target picker.
 
@@ -272,9 +290,15 @@ def activate_window(hwnd) -> bool:
     SetForegroundWindow is refused when the calling thread doesn't own the
     current foreground window, so the fallback attaches our input queue to
     both threads first -- the standard workaround.
+
+    SW_RESTORE is sent ONLY to a window that is actually minimized. Sending it
+    unconditionally also UN-MAXIMIZES a maximized window, which is why simply
+    focusing a maximized game snapped it back to its small restored size
+    (e.g. 800x800). Nothing but the Focus Target block may resize a target.
     """
     hwnd = int(hwnd)
-    user32.ShowWindow(hwnd, SW_RESTORE)
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
     if user32.SetForegroundWindow(hwnd):
         return True
     fg = user32.GetForegroundWindow()
@@ -348,24 +372,197 @@ RESIZE_EDGES = {
 }
 
 
-def begin_native_drag(hwnd) -> bool:
-    """Start Windows' own move loop, as if the title bar had been grabbed."""
+# Why the first implementation did nothing.
+#
+# 1. lParam was 0. For WM_NCLBUTTONDOWN the OS move loop reads the grab
+#    anchor out of lParam as screen coordinates, so 0 meant "grabbed at the
+#    top-left corner of the desktop" -- the window either did not follow the
+#    pointer at all or teleported on the first move.
+# 2. ReleaseCapture() is per-THREAD. The mousedown happens inside the
+#    WebView2 child window, which lives in a different process, so releasing
+#    capture on the Python thread released nothing and the modal loop never
+#    got a single WM_MOUSEMOVE.
+#
+# So: attach to the window's input thread before releasing capture, pass the
+# real cursor position, and keep a watchdog that drags the window by hand if
+# the OS loop still refuses to start.
+
+WM_SYSCOMMAND = 0x0112
+WM_CANCELMODE = 0x001F
+SC_MOVE = 0xF010
+SC_SIZE = 0xF000
+GA_ROOT = 2
+VK_LBUTTON = 0x01
+SWP_NOZORDER = 0x0004
+
+# WM_SYSCOMMAND's own edge numbering, which is NOT the HT* hit-test one.
+WMSZ_EDGES = {
+    "left": 1, "right": 2, "top": 3, "topleft": 4, "topright": 5,
+    "bottom": 6, "bottomleft": 7, "bottomright": 8,
+}
+
+# How long to give the OS loop before taking over, and how often the manual
+# fallback repositions the window (~125 fps: smooth without burning a core).
+_NATIVE_LOOP_GRACE_S = 0.12
+_MANUAL_STEP_S = 0.008
+_MANUAL_TIMEOUT_S = 60.0
+
+
+def _root_window(hwnd) -> int:
+    """The top-level window: a click arriving from the WebView2 child must
+    still move the frame, not the child."""
     try:
-        user32.ReleaseCapture()
-        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, HTCAPTION, 0)
+        root = user32.GetAncestor(int(hwnd), GA_ROOT)
+        return int(root) if root else int(hwnd)
+    except Exception:
+        return int(hwnd)
+
+
+def get_cursor_pos():
+    pt = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(pt))
+    return int(pt.x), int(pt.y)
+
+
+def _cursor_lparam() -> int:
+    x, y = get_cursor_pos()
+    return ((y & 0xFFFF) << 16) | (x & 0xFFFF)
+
+
+def _release_capture_for(hwnd) -> None:
+    """Release the mouse capture held by the window's OWN input thread.
+
+    Capture is per-thread, and ours is not the thread holding it -- the
+    WebView2 renderer is. AttachThreadInput briefly joins the two input
+    queues so ReleaseCapture applies where it matters.
+    """
+    try:
+        target_tid = user32.GetWindowThreadProcessId(int(hwnd), None)
+        own_tid = kernel32.GetCurrentThreadId()
+        attached = False
+        if target_tid and target_tid != own_tid:
+            attached = bool(user32.AttachThreadInput(own_tid, target_tid, True))
+        try:
+            user32.ReleaseCapture()
+        finally:
+            if attached:
+                user32.AttachThreadInput(own_tid, target_tid, False)
+    except Exception:
+        pass
+
+
+def _left_button_down() -> bool:
+    try:
+        return bool(user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
+    except Exception:
+        return False
+
+
+def _watch_and_take_over(hwnd, kind: str, edge: str, min_size) -> None:
+    """If the OS move/resize loop never started, do it by hand.
+
+    Checked by geometry rather than by a return value: PostMessage succeeds
+    whether or not DefWindowProc ends up running the loop.
+    """
+    import threading
+
+    before = get_window_rect(hwnd)
+
+    def worker() -> None:
+        time.sleep(_NATIVE_LOOP_GRACE_S)
+        if not is_window(hwnd) or not _left_button_down():
+            return
+        if get_window_rect(hwnd) != before:
+            return                      # the OS loop is running -- leave it alone
+        try:
+            user32.PostMessageW(int(hwnd), WM_CANCELMODE, 0, 0)
+        except Exception:
+            pass
+        if kind == "move":
+            _manual_move(hwnd)
+        else:
+            _manual_resize(hwnd, edge, min_size)
+
+    thread = threading.Thread(target=worker, name="frameless-chrome", daemon=True)
+    thread.start()
+
+
+def _manual_move(hwnd) -> None:
+    left, top, right, bottom = get_window_rect(hwnd)
+    w, h = right - left, bottom - top
+    ox, oy = get_cursor_pos()
+    deadline = time.perf_counter() + _MANUAL_TIMEOUT_S
+    while _left_button_down() and time.perf_counter() < deadline:
+        if not is_window(hwnd):
+            return
+        cx, cy = get_cursor_pos()
+        user32.SetWindowPos(int(hwnd), 0, left + (cx - ox), top + (cy - oy), w, h,
+                            SWP_NOZORDER | SWP_NOACTIVATE)
+        time.sleep(_MANUAL_STEP_S)
+
+
+def _manual_resize(hwnd, edge: str, min_size) -> None:
+    edge = str(edge).lower()
+    min_w, min_h = (int(min_size[0]), int(min_size[1])) if min_size else (240, 160)
+    left, top, right, bottom = get_window_rect(hwnd)
+    ox, oy = get_cursor_pos()
+    deadline = time.perf_counter() + _MANUAL_TIMEOUT_S
+    while _left_button_down() and time.perf_counter() < deadline:
+        if not is_window(hwnd):
+            return
+        cx, cy = get_cursor_pos()
+        dx, dy = cx - ox, cy - oy
+        new_left, new_top = left, top
+        new_right, new_bottom = right, bottom
+        if "left" in edge:
+            new_left = min(left + dx, right - min_w)
+        if "right" in edge:
+            new_right = max(right + dx, left + min_w)
+        if "top" in edge:
+            new_top = min(top + dy, bottom - min_h)
+        if "bottom" in edge:
+            new_bottom = max(bottom + dy, top + min_h)
+        user32.SetWindowPos(int(hwnd), 0, new_left, new_top,
+                            new_right - new_left, new_bottom - new_top,
+                            SWP_NOZORDER | SWP_NOACTIVATE)
+        time.sleep(_MANUAL_STEP_S)
+
+
+def begin_native_drag(hwnd, min_size=None) -> bool:
+    """Start Windows' own move loop, as if the title bar had been grabbed."""
+    hwnd = _root_window(hwnd)
+    if not hwnd or not is_window(hwnd):
+        return False
+    try:
+        _release_capture_for(hwnd)
+        lparam = _cursor_lparam()
+        # SC_MOVE|HTCAPTION is the same loop a real title bar grab starts,
+        # and unlike a bare WM_NCLBUTTONDOWN it also works when the click
+        # was consumed by a child window of another process.
+        user32.PostMessageW(int(hwnd), WM_SYSCOMMAND, SC_MOVE | HTCAPTION, lparam)
+        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, HTCAPTION, lparam)
+        _watch_and_take_over(hwnd, "move", "", min_size)
         return True
     except Exception:
         return False
 
 
-def begin_native_resize(hwnd, edge: str) -> bool:
+def begin_native_resize(hwnd, edge: str, min_size=None) -> bool:
     """Start Windows' own resize loop from the named edge or corner."""
-    code = RESIZE_EDGES.get(str(edge).lower())
-    if code is None:
+    edge = str(edge).lower()
+    code = RESIZE_EDGES.get(edge)
+    wmsz = WMSZ_EDGES.get(edge)
+    if code is None or wmsz is None:
+        return False
+    hwnd = _root_window(hwnd)
+    if not hwnd or not is_window(hwnd):
         return False
     try:
-        user32.ReleaseCapture()
-        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, code, 0)
+        _release_capture_for(hwnd)
+        lparam = _cursor_lparam()
+        user32.PostMessageW(int(hwnd), WM_SYSCOMMAND, SC_SIZE + wmsz, lparam)
+        user32.PostMessageW(int(hwnd), WM_NCLBUTTONDOWN, code, lparam)
+        _watch_and_take_over(hwnd, "resize", edge, min_size)
         return True
     except Exception:
         return False
@@ -380,18 +577,44 @@ def find_own_window(title: str):
 
 
 def capture_window_rgb(hwnd):
-    """PrintWindow capture of the window's own contents.
+    """PrintWindow capture of the window's CLIENT area.
+
+    PrintWindow always paints the WHOLE window -- border and title bar
+    included -- starting at the DC's origin, so a client-sized bitmap came
+    back holding the top-left corner of the *outer* window: the picture was
+    shifted down by the title bar height and cut off at the bottom. Every
+    coordinate in a macro is measured against the client area, so a spot
+    picked on such a picture was replayed exactly that many pixels too low.
+    The bitmap is therefore window-sized and the client rectangle is cropped
+    out of it afterwards.
 
     Works while the window is covered by another one, which a plain screen
-    grab cannot do. Returns (bgra_bytes, w, h) or None on an all-black frame
-    (some hardware-accelerated renderers do not answer PrintWindow).
+    grab cannot do. Returns (bgr_bytes, client_w, client_h) or None on an
+    all-black frame (some hardware-accelerated renderers do not answer
+    PrintWindow).
     """
     import numpy as np
 
     hwnd = int(hwnd)
-    w, h = get_client_size(hwnd)
-    if w <= 0 or h <= 0:
+    client_w, client_h = get_client_size(hwnd)
+    if client_w <= 0 or client_h <= 0:
         return None
+
+    # Where the client area sits inside the window, in window pixels. If the
+    # numbers do not add up (they can be odd for a maximized or DPI-scaled
+    # window) fall back to the old client-sized bitmap rather than crop blind.
+    w, h = client_w, client_h
+    off_x = off_y = 0
+    try:
+        left, top, right, bottom = get_window_rect(hwnd)
+        cs_x, cs_y = client_to_screen(hwnd, 0, 0)
+        outer_w, outer_h = right - left, bottom - top
+        dx, dy = cs_x - left, cs_y - top
+        if (dx >= 0 and dy >= 0 and outer_w >= client_w + dx
+                and outer_h >= client_h + dy):
+            w, h, off_x, off_y = outer_w, outer_h, dx, dy
+    except Exception:
+        pass
 
     gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
     hdc = user32.GetDC(hwnd)
@@ -419,9 +642,15 @@ def capture_window_rgb(hwnd):
         gdi32.SelectObject(mem_dc, old)
 
         arr = np.frombuffer(buf.raw, dtype=np.uint8).reshape(h, w, 4)
-        if not arr[:, :, :3].any():
+        frame = arr[off_y:off_y + client_h, off_x:off_x + client_w, :3]
+        if frame.shape[0] != client_h or frame.shape[1] != client_w:
+            # Should not happen after the bounds check above; returning the
+            # whole bitmap beats returning a silently mis-sized crop.
+            frame = arr[:, :, :3]
+            client_w, client_h = w, h
+        if not frame.any():
             return None
-        return arr[:, :, :3].copy(), w, h
+        return frame.copy(), client_w, client_h
     except Exception:
         return None
     finally:

@@ -26,6 +26,17 @@ ocr_needed = pytest.mark.skipif(ocr.engine_name() == "none",
                                 reason="no OCR engine on this machine")
 
 
+@pytest.fixture
+def english_catalog():
+    """Field labels are translated, so a test that reads one has to say
+    which language it means -- the catalog carries whatever the last test
+    to touch it left behind."""
+    before = blocks.get_language()
+    blocks.set_language("en")
+    yield
+    blocks.set_language(before)
+
+
 # --------------------------------------------------------------- catalog
 
 def test_the_new_blocks_are_in_the_catalog():
@@ -40,7 +51,7 @@ def test_the_new_blocks_have_handlers():
     assert hasattr(MacroRunner, "_do_click_color")
 
 
-def test_every_matching_vision_block_offers_confidence():
+def test_every_matching_vision_block_offers_confidence(english_catalog):
     """Images, text and colour all match approximately, so they all expose the
     same 0-1 knob under the same name. Read Text is excluded: it reports what
     it sees rather than deciding whether something matched."""
@@ -51,7 +62,7 @@ def test_every_matching_vision_block_offers_confidence():
         assert "Confidence" in labels, spec["type"]
 
 
-def test_confidence_is_a_zero_to_one_float_everywhere():
+def test_confidence_is_a_zero_to_one_float_everywhere(english_catalog):
     for spec in blocks.catalog():
         if spec["group"] != "Vision":
             continue
@@ -91,7 +102,8 @@ def test_every_block_owns_its_field_dicts():
     ("wait_color", "colour"), ("click_color", "colour"),
     ("wait_text", "text"), ("click_text", "text"),
 ])
-def test_each_block_gets_its_own_on_fail_wording(block_type, expect):
+def test_each_block_gets_its_own_on_fail_wording(english_catalog, block_type,
+                                                 expect):
     from core import blocks as blockmod
     for language in ("en", "ru"):
         blockmod.set_language(language)

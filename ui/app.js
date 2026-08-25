@@ -13,14 +13,22 @@ var state = {
   version: "0.0.0",
   catalog: [],
   byType: {},
-  phases: [{ key: "setup", label: "Setup" }, { key: "loop", label: "Loop" }],
+  phases: [{ key: "setup", label: "Setup" }, { key: "loop", label: "Loop" },
+           { key: "watch", label: "Watch" }],
   settings: {},
   macros: [],
   recordings: [],
   templates: [],
+  maps: [],
+  groups: [],
+  palettes: [],
+  activePalette: "",
   windows: [],
+  /* Which blocks are ticked for "save as group", and in which phase. One
+     phase at a time: blocks picked out of two phases have no single order. */
+  selection: { phase: null, ids: [] },
 
-  macro: { name: "", phases: { setup: [], loop: [] } },
+  macro: { name: "", phases: { setup: [], loop: [], watch: [] } },
   currentName: "",
   idCounter: 1,
   collapsed: {},
@@ -48,10 +56,10 @@ var state = {
   previewTimer: null
 };
 
-var GROUP_ORDER = ["Mouse", "Keyboard", "Timing", "Vision", "Flow", "Notify"];
+var GROUP_ORDER = ["Mouse", "Roblox", "Keyboard", "Timing", "Vision", "Flow", "Notify"];
 var COLORS = {
   rose: "var(--rose)", blue: "var(--blue)", amber: "var(--amber)",
-  teal: "var(--teal)", violet: "var(--violet)"
+  teal: "var(--teal)", violet: "var(--violet)", lime: "var(--lime)"
 };
 var MODIFIERS = ["shift", "ctrl", "alt", "win"];
 
@@ -129,12 +137,75 @@ var STRINGS = {
 
     /* ---- builder ---- */
     palette_title: "Block palette",
+    palette_manage: "Custom block palettes", palette_name_ph: "Palette name",
+    palette_save: "Save palette", palette_new: "New", palette_import: "Import",
+    palette_export: "Export", palette_folder: "Open folder", palette_saved: "Saved palettes",
+    palette_hint_manage: "Choose the blocks to include. Palettes contain only block types, so they are safe to share.",
+    palette_select_all: "Select all", palette_select_none: "Select none",
+    palette_use: "Use", palette_edit: "Edit", palette_delete: "Delete",
+    palette_empty: "No custom palettes yet.", palette_need_name: "Enter a palette name.",
+    palette_need_blocks: "Select at least one block.", palette_save_failed: "Could not save palette.",
+    palette_saved_toast: "Palette saved", palette_exported: "Palette exported",
+    palette_imported: "Palette imported", palette_import_failed: "Could not import palette.",
+    palette_delete_q: "Delete this palette?", palette_delete_body: "Only the palette file will be removed.",
     palette_hint: "Drag a block into a phase, or click it to append.",
     palette_hint_list: "Drag a block into the list, or click it to append.",
     palette_drag_hint: "Drag it into a phase, or click to append it to Loop.",
     palette_drag_list: "Drag it into the list, or click to append it to the end.",
     macro_name_ph: "Untitled macro",
-    phase_setup: "Setup", phase_loop: "Loop",
+    phase_setup: "Setup", phase_loop: "Loop", phase_watch: "Watch",
+    badge_watch: "always",
+    watch_hint: "Checked between blocks for as long as the macro runs. Give the "
+      + "block that looks for the event On fail = \"skip rest\" -- a pass that "
+      + "finds nothing then stops there and nothing below it runs. When it does "
+      + "find it, the rest of this phase runs and then the choice above applies.",
+    watch_on_word: "Watch",
+    watch_on_tip: "Check this phase while the macro runs",
+    watch_every: "every", watch_then: "then",
+    watch_after_continue: "continue",
+    watch_after_loop: "restart Loop",
+    watch_after_macro: "restart macro",
+    tip_watch_title: "Watch phase",
+    tip_watch_body: "Runs between the blocks of Setup and Loop, at the interval "
+      + "you set here.\n\nUse it for things that can happen at any moment: a "
+      + "death screen, a level-up popup, a disconnect dialog.\n\nAfter it has "
+      + "fired you can carry on where the macro left off, restart the Loop from "
+      + "the top, or restart the whole macro including Setup.",
+    ctl_runtime_tip: "Running for %s, %s loop pass(es)",
+    /* ---- block groups ---- */
+    grp_title: "Saved block groups",
+    grp_filter_ph: "filter by name...",
+    grp_hint: "Adds the group's blocks to the end of the chosen phase. They are copies -- editing them here changes nothing in the saved group.",
+    grp_folder: "Groups folder",
+    grp_empty: "No groups saved yet. Tick the # numbers of a few blocks and press Save group.",
+    grp_no_match: "No group matches that.",
+    grp_insert: "Insert",
+    grp_rename: "Rename",
+    grp_delete_q: "Delete the group \u201c%s\u201d?",
+    grp_delete_body: "Only the saved group goes -- blocks already inserted into a macro stay.",
+    grp_inserted: "%s block(s) added to %s",
+    grp_saved: "Group \u201c%s\u201d saved (%s block(s))",
+    grp_save_title: "Name for the group",
+    grp_save_sel: "%s selected block(s) from %s.",
+    grp_save_all: "All %s block(s) of %s.",
+    grp_need_name: "The group needs a name",
+    grp_nothing: "Nothing to save in this phase",
+    grp_overwrite: "Replace the group \u201c%s\u201d?",
+    grp_overwrite_body: "A group with that name already exists and will be overwritten.",
+    grp_save_failed: "Could not save the group",
+    grp_load_failed: "Could not open that group",
+    grp_btn_insert: "Group",
+    grp_btn_insert_tip: "Insert a saved block group into this phase",
+    grp_btn_save: "Save group",
+    grp_btn_save_sel: "Save group (%s)",
+    grp_btn_save_tip: "Save the ticked blocks as a reusable group -- or the whole phase when nothing is ticked.",
+    grp_btn_clear_sel: "Clear ticks",
+    grp_pick_title: "Pick for a group",
+    grp_pick_body: "Click the number to tick this block, then press Save group in the phase header.",
+    set_roblox_share: "Roblox share link",
+    set_roblox_place: "Roblox place id",
+    set_roblox_code: "Private server code",
+    set_roblox_hint: "Used by the Rejoin Server block whenever its own fields are left empty. A share link is enough on its own \u2014 the id and the code below are only for the older form of joining.",
     badge_once: "RUNS ONCE", badge_repeat: "REPEATS",
     phase_collapse: "Collapse",
     block_1: "block", block_n: "blocks",
@@ -294,6 +365,11 @@ var STRINGS = {
     recedit_close_first: "Close the actions editor first",
 
     /* ---- nested blocks editor ---- */
+    cond_choose: "Choose condition...",
+    cond_clear: "Clear condition",
+    cond_add: "+ Add condition",
+    cond_pick_hint: "Pick a condition type from the list on the left",
+    cond_empty: "No conditions yet — click + to add one",
     blocks_edit_title: "Fallback blocks",
     blocks_edit_hint: "These blocks run instead of continuing when the block above fails. "
       + "Drag the grip (or ↑ ↓) to reorder.",
@@ -305,8 +381,33 @@ var STRINGS = {
 
     /* ---- images ---- */
     img_manager: "Image manager",
+    img_kind_ui: "UI", img_kind_map: "MAP",
+    img_save_map: "Save as map",
+    img_save_map_tip: "Saves into the Maps folder instead of Assets — with a selection it saves the "
+      + "crop, without one the whole shot. Maps are what Place Unit picks spots on.",
+    img_map_saved: "Map '%s' saved",
+    img_open_maps: "Open Maps folder",
+    img_import_map: "Add map from file",
+    img_map_imported: "Map '%s' added",
+    img_map_import_failed: "Could not add that file",
+    img_map_delete_tip: "Delete this map",
+    img_ask_delete_map: "Delete map '%s'?",
+    img_ask_delete_map_body: "Removes the picture from the Maps folder. Place Unit blocks keep the "
+      + "name and show it as missing.",
+    img_map_reshoot: "Re-shoot",
+    img_map_reshoot_tip: "Shoot a window again and save it over '%s'.",
+    img_map_pick_tip: "Open '%s' and look at the spots units are placed on.",
+    img_map_size: "%s × %s",
+    img_shot_from: "Shot: %s",
+    img_shot_cancelled: "Capture cancelled",
+    winpick_title: "Which window should be captured?",
+    winpick_hint: "Only for this screenshot — the macro target is not changed.",
+    winpick_filter_ph: "Filter by title or process...",
+    winpick_screen: "Whole screen (the app hides itself)",
+    winpick_target: "current macro target",
     img_capture: "Capture target", img_pick_large: "Pick in large view",
-    img_capture_hint: "Capture opens the large view — drag with the left button to crop, middle-drag to pan.",
+    img_capture_hint: "Capture asks which window to shoot, then opens the large view — "
+      + "drag with the left button to crop, middle-drag to pan.",
     img_capture_size: "%s — drag a rectangle to crop. The large view is where the cropping happens.",
     img_no_capture: "No capture yet",
     img_capturing: "Capturing...",
@@ -316,7 +417,7 @@ var STRINGS = {
     img_save_new: "Save as new", img_save_variant: "Save as variant",
     img_open_assets: "Open Assets folder",
     img_variant_hint: "Variants let one name match several looks (hover, pressed, different scale).",
-    img_templates: "Templates", img_test_conf: "Test confidence",
+    img_templates: "Images and maps", img_test_conf: "Test confidence",
     img_conf_hint: "Used by the Test buttons below, and as the starting confidence for newly "
       + "added Vision blocks. Blocks you already built keep their own value.",
     img_none: "No images yet. Capture the target and crop one.",
@@ -356,6 +457,30 @@ var STRINGS = {
     tplpick_title: "Choose a saved image",
     tplpick_filter_ph: "Filter by name…",
     tplpick_new: "＋ Capture new", tplpick_none: "Use no image",
+    map_pick_prompt: "pick location…",
+    map_pick_chosen: "%1$s at %2$s — click to change",
+    map_pick_empty_tip: "No spot picked — click to open the map",
+    mappick_title: "Pick the spot on the map",
+    mappick_hint: "Click the picture where the unit goes. Amber dots are units other blocks place on this same map.",
+    mappick_no_spot: "no spot yet",
+    mappick_empty: "No maps yet — add your own screenshot of the map.",
+    mappick_loading: "Opening the picture…",
+    mappick_load_failed: "Could not open this map picture.",
+    mappick_import: "＋ Add picture", mappick_folder: "Maps folder",
+    mappick_clear: "Clear spot", mappick_apply: "Use this spot",
+    mappick_added: "Map added: %s",
+    mappick_need_spot: "Click the map first — nothing is picked yet.",
+    mappick_this: "this one",
+    mapgal_title: "Your maps",
+    mapgal_hint: "Pick the map this unit goes on. The amber count is how many units other blocks already place on that map.",
+    mapgal_filter_ph: "filter by name...",
+    mapgal_empty: "No maps yet -- add your own screenshot of the map.",
+    mapgal_no_match: "No map matches that.",
+    mapgal_none: "choose a map...",
+    mapgal_choose_tip: "%s saved maps -- click to look through them",
+    mapgal_count: "%s shown",
+    mapgal_units: "%s units",
+    mapgal_current: "current",
     tplpick_no_match: "No saved image matches “%s”.",
     tplpick_empty: "No saved images yet — press “＋ Capture new”.",
 
@@ -419,6 +544,10 @@ var STRINGS = {
     hook_state_no_url: "Sending is on, but no valid URL is saved yet, so nothing can be sent.",
     hook_enable: "Enable sending", hook_saved_url: "Saved URL", hook_no_url: "no URL saved",
     hook_new_url: "New webhook URL", hook_bot_name: "Bot name",
+    hook_design_title: "Embed title", hook_design_color: "Accent color",
+    hook_design_footer: "Footer", hook_design_description: "Default description",
+    hook_design_timestamp: "Show timestamp in embed",
+    hook_design_hint: "The Send Webhook block message overrides the default description. These styles are used by the test and by every webhook block.",
     hook_save_url: "Save URL", hook_test: "Send test message", hook_sending: "Sending…",
     hook_remove: "Remove URL",
     hook_secret_hint: "The URL is a secret: once saved it never leaves the app again, only a masked form is shown.",
@@ -495,12 +624,76 @@ var STRINGS = {
 
     /* ---- builder ---- */
     palette_title: "Палитра блоков",
+    palette_manage: "Свои палитры блоков", palette_name_ph: "Название палитры",
+    palette_save: "Сохранить палитру", palette_new: "Новая", palette_import: "Импорт",
+    palette_export: "Экспорт", palette_folder: "Открыть папку", palette_saved: "Сохранённые палитры",
+    palette_hint_manage: "Выбери блоки для палитры. В палитре хранятся только типы блоков — ею безопасно делиться.",
+    palette_select_all: "Выбрать все", palette_select_none: "Снять выбор",
+    palette_use: "Использовать", palette_edit: "Изменить", palette_delete: "Удалить",
+    palette_empty: "Своих палитр пока нет.", palette_need_name: "Введи название палитры.",
+    palette_need_blocks: "Выбери хотя бы один блок.", palette_save_failed: "Не удалось сохранить палитру.",
+    palette_saved_toast: "Палитра сохранена", palette_exported: "Палитра экспортирована",
+    palette_imported: "Палитра импортирована", palette_import_failed: "Не удалось импортировать палитру.",
+    palette_delete_q: "Удалить эту палитру?", palette_delete_body: "Будет удалён только файл палитры.",
     palette_hint: "Перетащи блок в фазу или кликни, чтобы добавить.",
     palette_hint_list: "Перетащи блок в список или кликни, чтобы добавить.",
     palette_drag_hint: "Перетащи в фазу или кликни, чтобы добавить в Loop.",
     palette_drag_list: "Перетащи в список или кликни, чтобы добавить в конец.",
     macro_name_ph: "Без названия",
-    phase_setup: "Подготовка", phase_loop: "Цикл",
+    phase_setup: "Подготовка", phase_loop: "Цикл", phase_watch: "Наблюдение",
+    badge_watch: "всегда",
+    watch_hint: "Проверяется между блоками всё время, пока работает "
+      + "макрос. У блока, который ищет событие, поставьте «При неудаче = "
+      + "skip rest» — тогда проход, в котором ничего нет, просто "
+      + "обрывается. Если событие нашлось — выполняется остаток фазы, а потом "
+      + "то, что выбрано выше.",
+    watch_on_word: "Следить",
+    watch_on_tip: "Проверять эту фазу, пока работает макрос",
+    watch_every: "каждые", watch_then: "потом",
+    watch_after_continue: "продолжить",
+    watch_after_loop: "перезапустить Цикл",
+    watch_after_macro: "перезапустить макрос",
+    tip_watch_title: "Фаза Наблюдение",
+    tip_watch_body: "Выполняется между блоками Подготовки и Цикла с заданным "
+      + "здесь интервалом.\n\nНужна для того, что может случиться в любой "
+      + "момент: экран смерти, окно уровня, диалог об отключении.\n\nПосле "
+      + "срабатывания можно продолжить с того же места, перезапустить Цикл "
+      + "с начала или весь макрос вместе с Подготовкой.",
+    ctl_runtime_tip: "Работает %s, проходов цикла: %s",
+    /* ---- \u0433\u0440\u0443\u043f\u043f\u044b \u0431\u043b\u043e\u043a\u043e\u0432 ---- */
+    grp_title: "\u0421\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0433\u0440\u0443\u043f\u043f\u044b \u0431\u043b\u043e\u043a\u043e\u0432",
+    grp_filter_ph: "\u0444\u0438\u043b\u044c\u0442\u0440 \u043f\u043e \u0438\u043c\u0435\u043d\u0438...",
+    grp_hint: "\u0411\u043b\u043e\u043a\u0438 \u0433\u0440\u0443\u043f\u043f\u044b \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u044e\u0442\u0441\u044f \u0432 \u043a\u043e\u043d\u0435\u0446 \u0432\u044b\u0431\u0440\u0430\u043d\u043d\u043e\u0439 \u0444\u0430\u0437\u044b. \u042d\u0442\u043e \u043a\u043e\u043f\u0438\u0438 \u2014 \u043f\u0440\u0430\u0432\u043a\u0438 \u0437\u0434\u0435\u0441\u044c \u043d\u0435 \u043c\u0435\u043d\u044f\u044e\u0442 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u0443\u044e \u0433\u0440\u0443\u043f\u043f\u0443.",
+    grp_folder: "\u041f\u0430\u043f\u043a\u0430 Groups",
+    grp_empty: "\u0413\u0440\u0443\u043f\u043f \u043f\u043e\u043a\u0430 \u043d\u0435\u0442. \u041e\u0442\u043c\u0435\u0442\u044c \u043d\u043e\u043c\u0435\u0440\u0430 # \u043d\u0443\u0436\u043d\u044b\u0445 \u0431\u043b\u043e\u043a\u043e\u0432 \u0438 \u043d\u0430\u0436\u043c\u0438 \u00ab\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443\u00bb.",
+    grp_no_match: "\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0448\u043b\u043e\u0441\u044c.",
+    grp_insert: "\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u044c",
+    grp_rename: "\u041f\u0435\u0440\u0435\u0438\u043c\u0435\u043d\u043e\u0432\u0430\u0442\u044c",
+    grp_delete_q: "\u0423\u0434\u0430\u043b\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u00ab%s\u00bb?",
+    grp_delete_body: "\u0423\u0434\u0430\u043b\u0438\u0442\u0441\u044f \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u0430\u044f \u0433\u0440\u0443\u043f\u043f\u0430 \u2014 \u0443\u0436\u0435 \u0432\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u043d\u044b\u0435 \u0431\u043b\u043e\u043a\u0438 \u043e\u0441\u0442\u0430\u043d\u0443\u0442\u0441\u044f.",
+    grp_inserted: "\u0414\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e \u0431\u043b\u043e\u043a\u043e\u0432: %s \u2192 %s",
+    grp_saved: "\u0413\u0440\u0443\u043f\u043f\u0430 \u00ab%s\u00bb \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0430 (\u0431\u043b\u043e\u043a\u043e\u0432: %s)",
+    grp_save_title: "\u0418\u043c\u044f \u0433\u0440\u0443\u043f\u043f\u044b",
+    grp_save_sel: "\u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e \u0431\u043b\u043e\u043a\u043e\u0432: %s \u0438\u0437 %s.",
+    grp_save_all: "\u0412\u0441\u0435 \u0431\u043b\u043e\u043a\u0438 (%s) \u0438\u0437 %s.",
+    grp_need_name: "\u0413\u0440\u0443\u043f\u043f\u0435 \u043d\u0443\u0436\u043d\u043e \u0438\u043c\u044f",
+    grp_nothing: "\u0412 \u044d\u0442\u043e\u0439 \u0444\u0430\u0437\u0435 \u043d\u0435\u0447\u0435\u0433\u043e \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0442\u044c",
+    grp_overwrite: "\u0417\u0430\u043c\u0435\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 \u00ab%s\u00bb?",
+    grp_overwrite_body: "\u0413\u0440\u0443\u043f\u043f\u0430 \u0441 \u0442\u0430\u043a\u0438\u043c \u0438\u043c\u0435\u043d\u0435\u043c \u0443\u0436\u0435 \u0435\u0441\u0442\u044c \u0438 \u0431\u0443\u0434\u0435\u0442 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0438\u0441\u0430\u043d\u0430.",
+    grp_save_failed: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443",
+    grp_load_failed: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443",
+    grp_btn_insert: "\u0413\u0440\u0443\u043f\u043f\u0430",
+    grp_btn_insert_tip: "\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u0443\u044e \u0433\u0440\u0443\u043f\u043f\u0443 \u0431\u043b\u043e\u043a\u043e\u0432 \u0432 \u044d\u0442\u0443 \u0444\u0430\u0437\u0443",
+    grp_btn_save: "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443",
+    grp_btn_save_sel: "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443 (%s)",
+    grp_btn_save_tip: "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043d\u044b\u0435 \u0431\u043b\u043e\u043a\u0438 \u043a\u0430\u043a \u0433\u0440\u0443\u043f\u043f\u0443 \u2014 \u0438\u043b\u0438 \u0432\u0441\u044e \u0444\u0430\u0437\u0443, \u0435\u0441\u043b\u0438 \u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043e\u0442\u043c\u0435\u0447\u0435\u043d\u043e.",
+    grp_btn_clear_sel: "\u0421\u043d\u044f\u0442\u044c \u043e\u0442\u043c\u0435\u0442\u043a\u0438",
+    grp_pick_title: "\u041e\u0442\u043c\u0435\u0442\u043a\u0430 \u0434\u043b\u044f \u0433\u0440\u0443\u043f\u043f\u044b",
+    grp_pick_body: "\u041a\u043b\u0438\u043a \u043f\u043e \u043d\u043e\u043c\u0435\u0440\u0443 \u043e\u0442\u043c\u0435\u0447\u0430\u0435\u0442 \u0431\u043b\u043e\u043a, \u043f\u043e\u0442\u043e\u043c \u043d\u0430\u0436\u043c\u0438 \u00ab\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0433\u0440\u0443\u043f\u043f\u0443\u00bb \u0432 \u0448\u0430\u043f\u043a\u0435 \u0444\u0430\u0437\u044b.",
+    set_roblox_share: "\u0421\u0441\u044b\u043b\u043a\u0430-\u043f\u0440\u0438\u0433\u043b\u0430\u0448\u0435\u043d\u0438\u0435 Roblox",
+    set_roblox_place: "Place id \u0438\u0433\u0440\u044b Roblox",
+    set_roblox_code: "\u041a\u043e\u0434 \u043f\u0440\u0438\u0432\u0430\u0442\u043d\u043e\u0433\u043e \u0441\u0435\u0440\u0432\u0435\u0440\u0430",
+    set_roblox_hint: "\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0435\u0442\u0441\u044f \u0431\u043b\u043e\u043a\u043e\u043c \xab\u041f\u0435\u0440\u0435\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c\u0441\u044f\xbb, \u043a\u043e\u0433\u0434\u0430 \u0435\u0433\u043e \u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0435 \u043f\u043e\u043b\u044f \u043f\u0443\u0441\u0442\u044b\u0435. \u0421\u0441\u044b\u043b\u043a\u0438-\u043f\u0440\u0438\u0433\u043b\u0430\u0448\u0435\u043d\u0438\u044f \u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e \u0441\u0430\u043c\u043e\u0439 \u043f\u043e \u0441\u0435\u0431\u0435 \u2014 ID \u0438 \u043a\u043e\u0434 \u043d\u0438\u0436\u0435 \u043d\u0443\u0436\u043d\u044b \u0442\u043e\u043b\u044c\u043a\u043e \u0434\u043b\u044f \u0441\u0442\u0430\u0440\u043e\u0433\u043e \u0441\u043f\u043e\u0441\u043e\u0431\u0430 \u0432\u0445\u043e\u0434\u0430.",
     badge_once: "ОДИН РАЗ", badge_repeat: "ПОВТОРЯЕТСЯ",
     phase_collapse: "Свернуть",
     block_1: "блок", block_n: "блоков",
@@ -657,6 +850,11 @@ var STRINGS = {
     recedit_close_first: "Сначала закрой редактор действий",
 
     /* ---- nested blocks editor ---- */
+    cond_choose: "Выбрать условие...",
+    cond_clear: "Убрать условие",
+    cond_add: "+ Добавить условие",
+    cond_pick_hint: "Выбери тип условия из списка слева",
+    cond_empty: "Условий нет — нажми + чтобы добавить",
     blocks_edit_title: "Запасные блоки",
     blocks_edit_hint: "Эти блоки выполнятся вместо продолжения, если блок выше не сработает. "
       + "Тяни за ручку (или ↑ ↓), чтобы переставить.",
@@ -668,8 +866,33 @@ var STRINGS = {
 
     /* ---- images ---- */
     img_manager: "Менеджер картинок",
+    img_kind_ui: "UI", img_kind_map: "КАРТА",
+    img_save_map: "Сохранить картой",
+    img_save_map_tip: "Сохраняет в папку Maps, а не в Assets — если есть выделение, "
+      + "сохранится оно, если нет — весь снимок. На картах блок «Поставить юнита» выбирает места.",
+    img_map_saved: "Карта «%s» сохранена",
+    img_open_maps: "Открыть папку Maps",
+    img_import_map: "Добавить карту из файла",
+    img_map_imported: "Карта «%s» добавлена",
+    img_map_import_failed: "Не удалось добавить этот файл",
+    img_map_delete_tip: "Удалить эту карту",
+    img_ask_delete_map: "Удалить карту «%s»?",
+    img_ask_delete_map_body: "Картинка будет удалена из папки Maps. Блоки «Поставить юнита» "
+      + "сохранят имя и покажут его как пропавшее.",
+    img_map_reshoot: "Переснять",
+    img_map_reshoot_tip: "Снять окно заново и сохранить поверх «%s».",
+    img_map_pick_tip: "Открыть «%s» и посмотреть, куда ставятся юниты.",
+    img_map_size: "%s × %s",
+    img_shot_from: "Снято: %s",
+    img_shot_cancelled: "Съёмка отменена",
+    winpick_title: "Какое окно снять?",
+    winpick_hint: "Только для этого снимка — цель макроса не меняется.",
+    winpick_filter_ph: "Фильтр по заголовку или процессу...",
+    winpick_screen: "Весь экран (приложение прячется)",
+    winpick_target: "текущая цель макроса",
     img_capture: "Снять цель", img_pick_large: "Открыть большой вид",
-    img_capture_hint: "Снимок открывается в большом виде — тяни левой кнопкой, чтобы вырезать, средней — чтобы двигать.",
+    img_capture_hint: "Снимок сначала спросит окно, потом откроется в большом виде — "
+      + "тяни левой кнопкой, чтобы вырезать, средней — чтобы двигать.",
     img_capture_size: "%s — выдели прямоугольник. Вырезать удобнее в большом виде.",
     img_no_capture: "Снимка пока нет",
     img_capturing: "Снимаю...",
@@ -679,7 +902,7 @@ var STRINGS = {
     img_save_new: "Сохранить как новую", img_save_variant: "Сохранить вариантом",
     img_open_assets: "Открыть папку Assets",
     img_variant_hint: "Варианты позволяют одному имени совпадать с разными видами (наведение, нажатие, другой масштаб).",
-    img_templates: "Шаблоны", img_test_conf: "Порог для теста",
+    img_templates: "Картинки и карты", img_test_conf: "Порог для теста",
     img_conf_hint: "Используется кнопками «Тест» ниже и как стартовый порог для новых "
       + "Vision-блоков. У уже собранных блоков остаётся своё значение.",
     img_none: "Картинок пока нет. Сними цель и вырежи первую.",
@@ -718,6 +941,30 @@ var STRINGS = {
     tplpick_title: "Выбери сохранённую картинку",
     tplpick_filter_ph: "Фильтр по имени…",
     tplpick_new: "＋ Снять новую", tplpick_none: "Без картинки",
+    map_pick_prompt: "выбрать место…",
+    map_pick_chosen: "%1$s, точка %2$s — кликни, чтобы сменить",
+    map_pick_empty_tip: "Место не выбрано — кликни, чтобы открыть карту",
+    mappick_title: "Выбери место на карте",
+    mappick_hint: "Нажми на картинке туда, куда ставить юнита. Оранжевые точки — юниты из других блоков на этой же карте.",
+    mappick_no_spot: "место не выбрано",
+    mappick_empty: "Карт пока нет — добавь свой скриншот карты.",
+    mappick_loading: "Открываю картинку…",
+    mappick_load_failed: "Не удалось открыть картинку карты.",
+    mappick_import: "＋ Добавить картинку", mappick_folder: "Папка Maps",
+    mappick_clear: "Убрать место", mappick_apply: "Выбрать место",
+    mappick_added: "Карта добавлена: %s",
+    mappick_need_spot: "Сначала ткни в карту — место ещё не выбрано.",
+    mappick_this: "этот",
+    mapgal_title: "Твои карты",
+    mapgal_hint: "Выбери карту, на которую ставить юнита. Оранжевая цифра — сколько юнитов другие блоки уже ставят на эту карту.",
+    mapgal_filter_ph: "фильтр по названию...",
+    mapgal_empty: "Карт пока нет — добавь свой скриншот карты.",
+    mapgal_no_match: "Ничего не нашлось.",
+    mapgal_none: "выбрать карту...",
+    mapgal_choose_tip: "Сохранённых карт: %s — нажми, чтобы посмотреть",
+    mapgal_count: "показано: %s",
+    mapgal_units: "юнитов: %s",
+    mapgal_current: "текущая",
     tplpick_no_match: "Ни одна картинка не подходит под «%s».",
     tplpick_empty: "Картинок пока нет — нажми «＋ Снять новую».",
 
@@ -781,6 +1028,10 @@ var STRINGS = {
     hook_state_no_url: "Отправка включена, но корректный адрес не сохранён, так что отправить нечего.",
     hook_enable: "Включить отправку", hook_saved_url: "Сохранённый адрес", hook_no_url: "адрес не сохранён",
     hook_new_url: "Новый адрес вебхука", hook_bot_name: "Имя бота",
+    hook_design_title: "Заголовок embed", hook_design_color: "Цвет акцента",
+    hook_design_footer: "Подпись", hook_design_description: "Описание по умолчанию",
+    hook_design_timestamp: "Показывать время в embed",
+    hook_design_hint: "Сообщение из блока Send Webhook заменяет описание по умолчанию. Эти стили используются тестом и всеми блоками вебхука.",
     hook_save_url: "Сохранить адрес", hook_test: "Отправить тест", hook_sending: "Отправляю…",
     hook_remove: "Удалить адрес",
     hook_secret_hint: "Адрес — секрет: после сохранения он больше не покидает приложение, показывается только маска.",
@@ -1059,9 +1310,11 @@ function appendLogEntry(entry) {
     el("span", { class: "log-t", text: entry.t || "" }),
     el("span", { class: "log-m", text: String(entry.msg == null ? "" : entry.msg) })
   ]);
-  body.appendChild(line);
-  while (body.childElementCount > 400) body.removeChild(body.firstElementChild);
-  body.scrollTop = body.scrollHeight;
+  /* Newest first. The tail of a long run is what anyone actually wants to
+     read, and appending meant scrolling for it every single time. */
+  body.insertBefore(line, body.firstChild);
+  while (body.childElementCount > 400) body.removeChild(body.lastElementChild);
+  body.scrollTop = 0;
   var last = $("#logLast");
   if (last) last.textContent = String(entry.msg == null ? "" : entry.msg);
 }
@@ -1088,7 +1341,7 @@ function clearLogs() {
 function showScreen(name) {
   $$(".screen").forEach(function (s) { s.classList.toggle("active", s.id === "screen-" + name); });
   $$(".railbtn").forEach(function (b) { b.classList.toggle("active", b.dataset.screen === name); });
-  if (name === "settings") { refreshWindows(); refreshWebhook(); }
+  if (name === "settings") { refreshWindows(); refreshWebhook(); renderRunStats(); }
   if (name === "images") { refreshTemplates(); }
   if (name === "record") { refreshRecordings(); }
 }
@@ -1097,6 +1350,9 @@ function showScreen(name) {
    7. BLOCK MODEL
    ========================================================================== */
 function specFor(type) { return state.byType[type] || null; }
+function prettyType(type) {
+  return String(type || "Block").replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+}
 
 function defaultParams(type) {
   var spec = specFor(type);
@@ -1185,7 +1441,11 @@ function findBlock(phase, id) {
 function currentMacro() {
   return {
     name: state.currentName || ($("#macroName") ? $("#macroName").value.trim() : "") || "Untitled",
-    phases: { setup: phaseArray("setup"), loop: phaseArray("loop") }
+    phases: {
+      setup: phaseArray("setup"),
+      loop: phaseArray("loop"),
+      watch: phaseArray("watch")
+    }
   };
 }
 
@@ -1200,6 +1460,14 @@ function renderPalette() {
       phaseArray("loop").push(makeBlock(spec.type));
       renderPhases();
       markDirty();
+    },
+    onGroup: async function (group) {
+      var result = await api("load_block_group", group.name);
+      if (!result || !result.ok) { toast(t("grp_load_failed"), "err"); return; }
+      var copies = normalizeList(result.blocks || [], true);
+      copies.forEach(function (block) { phaseArray("loop").push(block); });
+      renderPhases(); markDirty();
+      toast(tf("grp_inserted", copies.length, group.name), "ok");
     }
   });
 }
@@ -1213,7 +1481,45 @@ function buildPalette(host, opts) {
   host.innerHTML = "";
 
   var groups = {};
-  state.catalog.forEach(function (spec) {
+  var customPalettes = opts.allowCustom !== false ? (state.palettes || []) : [];
+  var customBlocks = opts.allowCustom !== false ? (state.groups || []) : [];
+  var active = opts.allowCustom !== false && state.activePalette && (state.palettes || []).find(function (p) {
+    return p.name === state.activePalette;
+  });
+  var allowed = active ? new Set(active.types || []) : null;
+  if (opts.allowCustom !== false) {
+    var tabs = el("div", { class: "palette-tabs" });
+    var allTab = el("button", { class: "palette-tab" + (!active ? " active" : ""), text: "Blocks" });
+    allTab.addEventListener("click", function () { state.activePalette = ""; renderPalette(); });
+    tabs.appendChild(allTab);
+    customPalettes.forEach(function (palette) {
+      var tab = el("button", { class: "palette-tab" + (active && active.name === palette.name ? " active" : ""), text: palette.name });
+      tab.addEventListener("click", function () { state.activePalette = palette.name; renderPalette(); });
+      tabs.appendChild(tab);
+    });
+    var customTab = el("button", { class: "palette-tab" + (state.activePalette === "__custom__" ? " active" : ""), text: "Custom" });
+    customTab.addEventListener("click", function () { state.activePalette = "__custom__"; renderPalette(); });
+    tabs.appendChild(customTab);
+    host.appendChild(tabs);
+  }
+
+  if (state.activePalette === "__custom__") {
+    var customItems = el("div", { class: "pgroup-items" });
+    var create = el("div", { class: "chip chip-create", text: "+ Create custom block" });
+    create.addEventListener("click", function () { openCustomBlockEditor(); });
+    customItems.appendChild(create);
+    customBlocks.forEach(function (group) {
+      var chip = el("div", { class: "chip", style: "--chip-color:" + colorOf("violet") }, [
+        el("span", { class: "chip-dot" }), el("span", { text: group.name })
+      ]);
+      attachTip(chip, group.name, String(group.count || 0) + " " + t("block_n"));
+      chip.addEventListener("click", function () { if (opts.onGroup) opts.onGroup(group); });
+      customItems.appendChild(chip);
+    });
+    host.appendChild(el("div", {}, [el("div", { class: "pgroup-title", text: "Custom blocks" }), customItems]));
+    return;
+  }
+  state.catalog.filter(function (spec) { return !allowed || allowed.has(spec.type); }).forEach(function (spec) {
     var g = spec.group || "Other";
     (groups[g] = groups[g] || []).push(spec);
   });
@@ -1229,8 +1535,8 @@ function buildPalette(host, opts) {
         class: "chip",
         draggable: "true",
         style: "--chip-color:" + colorOf(spec.color)
-      }, [el("span", { class: "chip-dot" }), el("span", { text: spec.label || spec.type })]);
-      attachTip(chip, spec.label || spec.type,
+      }, [el("span", { class: "chip-dot" }), el("span", { text: spec.label || prettyType(spec.type) })]);
+      attachTip(chip, spec.label || prettyType(spec.type),
                 (spec.desc ? spec.desc + "\n\n" : "") + opts.hint);
 
       chip.addEventListener("dragstart", function (e) {
@@ -1271,8 +1577,9 @@ function renderPhases() {
 
   state.phases.forEach(function (ph) {
     var blocks = phaseArray(ph.key);
-    var badgeText = ph.key === "setup" ? t("badge_once") : t("badge_repeat");
-    var badgeClass = ph.key === "setup" ? "badge badge-once" : "badge badge-repeat";
+    var badgeKey = ph.key === "setup" ? "once" : (ph.key === "watch" ? "watch" : "repeat");
+    var badgeText = t("badge_" + badgeKey);
+    var badgeClass = "badge badge-" + badgeKey;
     var phaseLabel = phaseTitle(ph);
 
     var collapseBtn = el("button", { class: "phase-collapse", title: t("phase_collapse") }, [icon("i-chev", "ic-xs")]);
@@ -1287,6 +1594,27 @@ function renderPhases() {
        belongs next to it -- the same two settings the Setup screen owns, kept
        in step by syncLoopControls(). */
     if (ph.key === "loop") head.appendChild(loopRepeatControls());
+    if (ph.key === "watch") head.appendChild(watchControls());
+    /* Reusable groups belong to the phase they are inserted into, so both
+       doors -- insert and save -- sit in that phase's own header. */
+    var ticked = selectionFor(ph.key);
+    head.appendChild(el("button", {
+      class: "btn btn-sm", text: t("grp_btn_insert"),
+      title: t("grp_btn_insert_tip"),
+      onclick: function () { openGroupModal(ph.key); }
+    }));
+    head.appendChild(el("button", {
+      class: "btn btn-sm" + (ticked.length ? " btn-primary" : ""),
+      text: ticked.length ? tf("grp_btn_save_sel", ticked.length) : t("grp_btn_save"),
+      title: t("grp_btn_save_tip"),
+      onclick: function () { saveGroupFrom(ph.key, phaseLabel); }
+    }));
+    if (ticked.length) {
+      head.appendChild(el("button", {
+        class: "btn btn-sm", text: t("grp_btn_clear_sel"),
+        onclick: function () { clearSelection(); }
+      }));
+    }
     head.appendChild(el("button", {
       class: "btn btn-sm btn-ghost-danger", text: t("btn_clear"),
       onclick: function () { clearPhase(ph.key, phaseLabel); }
@@ -1303,8 +1631,12 @@ function renderPhases() {
     }
     wireDropTarget(list, ctx);
 
+    var bodyKids = [list];
+    /* The one thing about Watch that is not obvious from looking at it: the
+       block that CHECKS must abandon the pass when it finds nothing. */
+    if (ph.key === "watch") bodyKids.unshift(el("div", { class: "phase-note", text: t("watch_hint") }));
     var panel = el("div", { class: "phase" + (state.collapsed[ph.key] ? " collapsed" : "") }, [
-      head, el("div", { class: "phase-body" }, [list])
+      head, el("div", { class: "phase-body" }, bodyKids)
     ]);
     collapseBtn.addEventListener("click", function () {
       state.collapsed[ph.key] = !state.collapsed[ph.key];
@@ -1370,6 +1702,62 @@ function syncLoopControlsIn(root) {
 function syncLoopControls() { syncLoopControlsIn(document); }
 
 /* --------------------------------------------------------------------------
+   The Watch phase's three settings, rendered into its header next to the
+   name: whether it is watched at all, how often, and what happens once it
+   has fired. Plain settings, like the Loop repeat controls above.
+   -------------------------------------------------------------------------- */
+function watchControls() {
+  var enabled = el("input", { type: "checkbox", id: "watchEnabled" });
+  var every = el("input", {
+    class: "inp inp-watch", type: "number", min: "50", step: "50", id: "watchInterval"
+  });
+  var after = el("select", { class: "inp sel-watch", id: "watchAfter" });
+  [["continue", "watch_after_continue"],
+   ["restart loop", "watch_after_loop"],
+   ["restart macro", "watch_after_macro"]].forEach(function (pair) {
+    after.appendChild(el("option", { value: pair[0], text: t(pair[1]) }));
+  });
+
+  enabled.addEventListener("change", async function () {
+    await setSetting("watch_enabled", enabled.checked);
+    syncWatchControls();
+  });
+  every.addEventListener("change", async function () {
+    var n = Math.max(50, toInt(every.value, 400));
+    every.value = n;
+    await setSetting("watch_interval_ms", n);
+  });
+  after.addEventListener("change", async function () {
+    await setSetting("watch_after", after.value);
+  });
+
+  var node = el("div", { class: "loop-ctl watch-ctl" }, [
+    el("label", { class: "switch-row", title: t("watch_on_tip") }, [
+      el("span", { class: "switch" }, [enabled, el("span", { class: "slider" })]),
+      el("span", { text: t("watch_on_word") })
+    ]),
+    el("span", { class: "loop-x", text: t("watch_every") }), every,
+    el("span", { class: "loop-x", text: t("watch_then") }), after
+  ]);
+  attachTip(node, t("tip_watch_title"), t("tip_watch_body"));
+  syncWatchControlsIn(node);
+  return node;
+}
+
+function syncWatchControlsIn(root) {
+  var s = state.settings || {};
+  var on = s.watch_enabled !== false;
+  var enabled = $("#watchEnabled", root);
+  var every = $("#watchInterval", root);
+  var after = $("#watchAfter", root);
+  if (enabled) enabled.checked = on;
+  if (every) { every.value = Math.max(50, toInt(s.watch_interval_ms, 400)); every.disabled = !on; }
+  if (after) { after.value = String(s.watch_after || "continue"); after.disabled = !on; }
+}
+
+function syncWatchControls() { syncWatchControlsIn(document); }
+
+/* --------------------------------------------------------------------------
    A row is rendered against a CONTEXT rather than against a phase name, so the
    very same renderer (and therefore every field editor) also drives the
    recording-actions modal, which edits a list that is not part of the macro.
@@ -1401,6 +1789,7 @@ function renderBlockRow(block, index, ctx) {
   });
   row.dataset.id = block.id;
   if (phase) row.dataset.phase = phase;
+  if (phase && isSelected(phase, block.id)) row.classList.add("sel");
 
   /* drag handle -- the row only becomes draggable while the grip is held */
   var grip = el("div", { class: "grip", title: t("tip_drag_reorder") }, [icon("i-grip")]);
@@ -1422,9 +1811,9 @@ function renderBlockRow(block, index, ctx) {
 
   var typeLabel = el("div", {
     class: "row-type",
-    text: spec ? spec.label : block.type
+    text: spec ? spec.label : prettyType(block.type)
   });
-  attachTip(typeLabel, spec ? spec.label : block.type,
+  attachTip(typeLabel, spec ? spec.label : prettyType(block.type),
             ((spec && spec.desc) ? spec.desc + "\n\n" : "")
             + t("tip_toggle_block"));
   typeLabel.addEventListener("click", function () {
@@ -1544,10 +1933,26 @@ function renderBlockRow(block, index, ctx) {
 
   row.appendChild(grip);
   row.appendChild(typeLabel);
-  row.appendChild(el("div", { class: "row-ord", text: "#" + (index + 1) }));
+  /* The ordinal doubles as the tick box for "save as group". It is the one
+     spot on the row that carries no editor of its own, so clicking it can
+     never be confused with editing a field. */
+  var ord = el("div", {
+    class: "row-ord" + (ctx.full && phase ? " pickable" : ""),
+    text: "#" + (index + 1)
+  });
+  if (ctx.full && phase) {
+    attachTip(ord, t("grp_pick_title"), t("grp_pick_body"));
+    ord.addEventListener("click", function () { toggleSelected(phase, block.id); });
+  }
+  row.appendChild(ord);
   row.appendChild(fields);
-  extra.forEach(function (node) { row.appendChild(node); });
-  row.appendChild(el("div", { class: "row-actions" }, actions));
+  /* Keep every block-level action in one stable cell.  Putting the edit/
+     preview button beside the fields as a direct flex child made it compete
+     with .row-actions and wrap onto a different line on narrow windows. */
+  var rowActions = el("div", { class: "row-actions" });
+  extra.forEach(function (node) { rowActions.appendChild(node); });
+  actions.forEach(function (node) { rowActions.appendChild(node); });
+  row.appendChild(rowActions);
   return row;
 }
 
@@ -1871,6 +2276,19 @@ function fieldApplies(block, f) {
   if (f.key === "on_fail_blocks" || f.key === "on_fail_after") {
     return String(params.on_fail || "") === "run blocks";
   }
+  /* Read Text only compares when asked to; a "Value" next to "off" is a
+     box whose contents change nothing. */
+  if (block.type === "read_text" && f.key === "expect") {
+    var cmp = String(params.compare || "off");
+    return cmp !== "off" && cmp !== "";
+  }
+  /* Camera Setup: a sweep has no step count and an exact turn has no sweep,
+     so only one of the two is ever a real setting. */
+  if (block.type === "mouse_look") {
+    var toLimit = String(params.mode || "to limit") !== "exact";
+    if (f.key === "sweep_px") return toLimit;
+    if (f.key === "steps") return !toLimit;
+  }
   if (block.type === "send_webhook" && f.key === "region") {
     return String(params.source || "") === "region";
   }
@@ -1900,7 +2318,11 @@ function renderField(block, f, phase) {
     case "color": return fieldColor(block, f);
     case "template": return fieldTemplate(block, f);
     case "recording": return fieldRecording(block, f);
-    case "coord": return null;             /* not used by the catalog */
+    case "map_point": return fieldMapPoint(block, f);
+    case "coord": return null;
+    case "condition":  return fieldCondition(block, f);
+    case "conditions": return fieldConditions(block, f);
+    case "filepath":   return fieldFilepath(block, f);
     default: return fieldText(block, f);
   }
 }
@@ -2145,6 +2567,827 @@ function fieldTemplate(block, f) {
   var node = wrapField(f.label || f.key, btn, f.help);
   node._syncField = label;
   return node;
+}
+
+/* --------------------------------------------------------------------------
+   kind: "map_point" -- a spot on one of the user's own map screenshots.
+
+   Stored as [map name, x, y, image width, image height]. The size of the
+   picture the spot was picked on travels with it so the runner can scale the
+   point onto a game window of a different size; without it the same macro
+   placed units further and further off the moment the window changed.
+   -------------------------------------------------------------------------- */
+function fieldMapPoint(block, f) {
+  var btn = el("button", { class: "tplbtn", type: "button" });
+  var name = el("span", { class: "tplbtn-name" });
+  btn.appendChild(name);
+
+  function label() {
+    var value = block.params[f.key];
+    var set = Array.isArray(value) && value.length >= 3;
+    var where = set ? (Math.round(value[1]) + "," + Math.round(value[2])) : "";
+    name.textContent = set ? (value[0] + " · " + where) : t("map_pick_prompt");
+    btn.classList.toggle("empty", !set);
+    btn.title = set ? tf("map_pick_chosen", value[0], where) : t("map_pick_empty_tip");
+  }
+  label();
+
+  btn.addEventListener("click", function (e) {
+    e.preventDefault();
+    /* The block's own id is passed so the picker can leave this block's dot
+       out of the "already placed" markers -- otherwise every re-open showed
+       the spot twice, once as itself and once as a neighbour. */
+    openMapPicker(block.params[f.key], block.id).then(function (chosen) {
+      if (chosen === undefined) return;                     /* cancelled */
+      block.params[f.key] = chosen;
+      label();
+      markDirty();
+    });
+  });
+
+  var node = wrapField(f.label || f.key, btn, f.help);
+  node._syncField = label;
+  return node;
+}
+
+var mapPick = { resolve: null, selfId: "", map: "", point: null, width: 0, height: 0, list: [], bound: false };
+
+/* Every spot other Place Unit blocks use on this map, so two units are not
+   stacked on one tile by accident. Nested lists are walked too: a unit placed
+   inside an on-fail branch occupies the same ground as one in the main list. */
+function placedUnitsOnMap(mapName, selfId) {
+  var out = [];
+  if (!mapName) return out;
+
+  function walk(list) {
+    (list || []).forEach(function (b) {
+      if (!b || typeof b !== "object") return;
+      var params = b.params || {};
+      if (b.type === "place_unit" && b.id !== selfId) {
+        var loc = params.location;
+        if (Array.isArray(loc) && loc.length >= 5 && String(loc[0]) === String(mapName)) {
+          out.push({
+            x: Number(loc[1]) || 0, y: Number(loc[2]) || 0,
+            w: Number(loc[3]) || 0, h: Number(loc[4]) || 0,
+            unit: String(params.unit || "?")
+          });
+        }
+      }
+      Object.keys(params).forEach(function (key) {
+        var value = params[key];
+        /* Only nested BLOCK lists, which is what a first element with a type
+           means -- a map point is an array too, and recursing into it threw. */
+        if (Array.isArray(value) && value.length && value[0] && value[0].type) walk(value);
+      });
+    });
+  }
+  walk(phaseArray("setup"));
+  walk(phaseArray("loop"));
+  return out;
+}
+
+function mapMark(leftPct, topPct, label, kind) {
+  return el("div", {
+    class: "map-mark map-mark-" + kind,
+    style: "left:" + leftPct + "%;top:" + topPct + "%",
+    title: String(label || "")
+  }, [
+    el("span", { class: "map-mark-dot" }),
+    el("span", { class: "map-mark-label", text: String(label || "") })
+  ]);
+}
+
+function renderMapPickMarks() {
+  var host = $("#mapPickMarks");
+  if (!host) return;
+  host.innerHTML = "";
+  if (!mapPick.width || !mapPick.height) return;
+
+  placedUnitsOnMap(mapPick.map, mapPick.selfId).forEach(function (u) {
+    /* Each neighbour is scaled by the size IT was picked at, not by this
+       picture's -- two blocks can hold the same map from before it was
+       re-imported at another resolution. */
+    var w = u.w || mapPick.width, h = u.h || mapPick.height;
+    host.appendChild(mapMark(u.x / w * 100, u.y / h * 100, u.unit, "other"));
+  });
+  if (mapPick.point) {
+    host.appendChild(mapMark(mapPick.point[0] / mapPick.width * 100,
+                             mapPick.point[1] / mapPick.height * 100,
+                             t("mappick_this"), "self"));
+  }
+}
+
+function syncMapPickReadout() {
+  var readout = $("#mapPickCurrent");
+  if (readout) {
+    readout.textContent = mapPick.point
+      ? (mapPick.map + " · " + mapPick.point[0] + "," + mapPick.point[1])
+      : t("mappick_no_spot");
+  }
+  var apply = $("#btnMapPickApply");
+  if (apply) apply.disabled = !(mapPick.point && mapPick.map && mapPick.width);
+}
+
+async function refreshMapPickList() {
+  var list = await apiQ("list_maps");
+  mapPick.list = Array.isArray(list) ? list.slice() : [];
+  /* A map file deleted behind the app's back stays in the list, marked: the
+     block still points at it, and quietly dropping it would let Apply write
+     a different map than the one the row says. */
+  if (mapPick.map && mapPick.list.indexOf(mapPick.map) < 0) mapPick.list.push(mapPick.map);
+  /* Only auto-picked when there is nothing to choose between -- with several
+     maps the gallery opens instead, so the first one is not silently used. */
+  if (!mapPick.map && mapPick.list.length === 1) mapPick.map = mapPick.list[0];
+  syncMapPickChoose();
+  if (mapGal.open) renderMapGallery();
+}
+
+function syncMapPickChoose() {
+  var name = $("#mapPickChosenName");
+  var known = mapPick.map && mapPick.list.indexOf(mapPick.map) >= 0;
+  if (name) {
+    name.textContent = mapPick.map
+      ? (mapPick.map + (known ? "" : " " + t("missing_suffix")))
+      : t("mapgal_none");
+  }
+  var btn = $("#btnMapPickChoose");
+  if (btn) {
+    btn.classList.toggle("empty", !mapPick.map);
+    btn.title = tf("mapgal_choose_tip", mapPick.list.length);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   The map gallery -- the pictures themselves, laid out.
+
+   A dropdown of file names was useless for this: the whole question is which
+   picture, and "forest2" and "forest_new" are indistinguishable until you
+   look at them. It sits on top of the spot picker rather than replacing it,
+   so switching maps does not throw away the picker's state.
+   -------------------------------------------------------------------------- */
+var mapGal = { open: false, filter: "" };
+
+function closeMapGallery() {
+  mapGal.open = false;
+  var overlay = $("#mapGalleryModal");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+function openMapGallery() {
+  var overlay = $("#mapGalleryModal");
+  if (!overlay) return;
+  mapGal.open = true;
+  mapGal.filter = "";
+  var filter = $("#mapGalFilter");
+  if (filter) filter.value = "";
+  overlay.classList.remove("hidden");
+  renderMapGallery();
+  if (filter) filter.focus();
+}
+
+function chooseMapFromGallery(name) {
+  closeMapGallery();
+  if (name === mapPick.map) return;
+  mapPick.map = name;
+  /* A spot belongs to the picture it was clicked on, so switching maps drops
+     it rather than carrying the old coordinates onto another map. */
+  mapPick.point = null;
+  syncMapPickChoose();
+  showMapPickImage(mapPick.map);
+}
+
+function mapGalleryCard(name) {
+  var on = name === mapPick.map;
+  var card = el("button", { class: "tplpick-card mapgal-card" + (on ? " on" : ""), type: "button" });
+  var thumb = el("div", { class: "tpl-thumb" }, [el("span", { class: "hint", text: "..." })]);
+  var meta = el("div", { class: "tpl-meta mapgal-meta" });
+  /* What is already on a map is usually the reason to pick one over another. */
+  var units = placedUnitsOnMap(name, mapPick.selfId).length;
+
+  card.appendChild(thumb);
+  card.appendChild(el("div", { class: "tpl-name", text: name }));
+  card.appendChild(meta);
+
+  mapThumb(name).then(function (info) {
+    thumb.innerHTML = "";
+    meta.innerHTML = "";
+    if (info && info.ok) {
+      thumb.appendChild(el("img", { src: info.image, alt: name }));
+      meta.appendChild(el("span", { text: info.width + "×" + info.height }));
+    } else {
+      thumb.appendChild(el("span", { class: "hint", text: t("img_no_preview") }));
+      meta.appendChild(el("span", { class: "hint", text: t("missing_suffix") }));
+    }
+    if (units) meta.appendChild(el("span", { class: "mapgal-units", text: tf("mapgal_units", units) }));
+    if (on) meta.appendChild(el("span", { class: "mapgal-cur", text: t("mapgal_current") }));
+  });
+
+  card.addEventListener("click", function (e) {
+    e.preventDefault();
+    chooseMapFromGallery(name);
+  });
+  return card;
+}
+
+function renderMapGallery() {
+  var grid = $("#mapGalGrid"), empty = $("#mapGalEmpty"), count = $("#mapGalCount");
+  if (!grid) return;
+  var needle = String(mapGal.filter || "").trim().toLowerCase();
+  var shown = (mapPick.list || []).filter(function (name) {
+    return !needle || String(name).toLowerCase().indexOf(needle) >= 0;
+  });
+
+  grid.innerHTML = "";
+  shown.forEach(function (name) { grid.appendChild(mapGalleryCard(name)); });
+  if (count) count.textContent = tf("mapgal_count", shown.length);
+  if (empty) {
+    empty.classList.toggle("hidden", shown.length > 0);
+    /* "nothing here" and "nothing matches your filter" are different
+       problems, and only one of them is fixed by adding a picture. */
+    empty.textContent = (mapPick.list || []).length ? t("mapgal_no_match") : t("mappick_empty");
+  }
+}
+
+/* Shared by the picker's foot button and the gallery's, so a picture added
+   from either place lands in the same state: chosen, on screen, in the grid. */
+async function importMapIntoPicker() {
+  var result = await api("import_map");
+  if (!result || !result.ok) {
+    if (result && result.reason !== "cancelled") toast(t("mappick_load_failed"), "err");
+    return;
+  }
+  mapPick.map = result.name;
+  mapPick.point = null;
+  await refreshMaps();                 /* Images grid + the thumbnail cache */
+  await refreshMapPickList();
+  closeMapGallery();
+  await showMapPickImage(mapPick.map);
+  toast(tf("mappick_added", result.name));
+}
+
+async function showMapPickImage(name) {
+  var img = $("#mapPickImg"), empty = $("#mapPickEmpty"), marks = $("#mapPickMarks");
+  if (!img || !empty) return;
+  if (marks) marks.innerHTML = "";
+
+  if (!name) {
+    img.classList.add("hidden");
+    img.removeAttribute("src");
+    empty.classList.remove("hidden");
+    empty.textContent = t("mappick_empty");
+    mapPick.width = mapPick.height = 0;
+    syncMapPickReadout();
+    return;
+  }
+  empty.classList.remove("hidden");
+  empty.textContent = t("mappick_loading");
+
+  var result = await api("get_map", name);
+  /* A slow load must not paint over a map chosen since. */
+  if (mapPick.map !== name) return;
+  if (!result || !result.ok) {
+    img.classList.add("hidden");
+    img.removeAttribute("src");
+    empty.textContent = t("mappick_load_failed");
+    mapPick.width = mapPick.height = 0;
+    syncMapPickReadout();
+    return;
+  }
+  mapPick.width = Number(result.width) || 0;
+  mapPick.height = Number(result.height) || 0;
+  img.src = result.image;
+  img.classList.remove("hidden");
+  empty.classList.add("hidden");
+  renderMapPickMarks();
+  syncMapPickReadout();
+}
+
+function closeMapPicker(value) {
+  closeMapGallery();
+  var overlay = $("#mapPickModal");
+  if (overlay) overlay.classList.add("hidden");
+  var resolve = mapPick.resolve;
+  mapPick.resolve = null;
+  if (resolve) resolve(value);
+}
+
+/* Wired once and left in place: the handlers read mapPick, so re-binding on
+   every open would only pile up duplicates on the same buttons. */
+function bindMapPicker() {
+  if (mapPick.bound) return;
+  mapPick.bound = true;
+
+  var img = $("#mapPickImg");
+  if (img) {
+    img.addEventListener("click", function (e) {
+      if (!mapPick.width || !mapPick.height) return;
+      var rect = img.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      /* Measured against the rendered box, not offsetX: the picture is scaled
+         to fit the modal, so screen pixels have to be turned back into the
+         picture's own pixels -- that is what the runner scales from. */
+      mapPick.point = [
+        clamp(Math.round((e.clientX - rect.left) / rect.width * mapPick.width), 0, mapPick.width - 1),
+        clamp(Math.round((e.clientY - rect.top) / rect.height * mapPick.height), 0, mapPick.height - 1)
+      ];
+      renderMapPickMarks();
+      syncMapPickReadout();
+    });
+  }
+
+  var choose = $("#btnMapPickChoose");
+  if (choose) {
+    choose.addEventListener("click", function (e) {
+      e.preventDefault();
+      openMapGallery();
+    });
+  }
+
+  var galFilter = $("#mapGalFilter");
+  if (galFilter) {
+    galFilter.addEventListener("input", function () {
+      mapGal.filter = galFilter.value;
+      renderMapGallery();
+    });
+  }
+  var galImport = $("#btnMapGalImport");
+  if (galImport) galImport.addEventListener("click", function () { importMapIntoPicker(); });
+  var galFolder = $("#btnMapGalFolder");
+  if (galFolder) galFolder.addEventListener("click", function () { api("open_maps_folder"); });
+  ["#btnMapGalCancel", "#btnMapGalClose"].forEach(function (sel) {
+    var node = $(sel);
+    if (node) node.addEventListener("click", function () { closeMapGallery(); });
+  });
+
+  var importBtn = $("#btnMapPickImport");
+  if (importBtn) importBtn.addEventListener("click", function () { importMapIntoPicker(); });
+
+  var folderBtn = $("#btnMapPickFolder");
+  if (folderBtn) folderBtn.addEventListener("click", function () { api("open_maps_folder"); });
+
+  var applyBtn = $("#btnMapPickApply");
+  if (applyBtn) {
+    applyBtn.addEventListener("click", function () {
+      if (!mapPick.point || !mapPick.map || !mapPick.width) {
+        toast(t("mappick_need_spot"), "err");
+        return;
+      }
+      closeMapPicker([mapPick.map, mapPick.point[0], mapPick.point[1],
+                      mapPick.width, mapPick.height]);
+    });
+  }
+  var clearBtn = $("#btnMapPickClear");
+  if (clearBtn) clearBtn.addEventListener("click", function () { closeMapPicker(null); });
+  ["#btnMapPickCancel", "#btnMapPickClose"].forEach(function (sel) {
+    var node = $(sel);
+    if (node) node.addEventListener("click", function () { closeMapPicker(undefined); });
+  });
+
+  /* Capture phase: the global Escape handler would hide the overlay behind
+     this promise's back and strand the field waiting for an answer. */
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || !mapPick.resolve) return;
+    e.preventDefault();
+    e.stopPropagation();
+    /* The gallery sits on top: Escape there means "keep the map I had", not
+       "cancel the whole pick". */
+    if (mapGal.open) { closeMapGallery(); return; }
+    closeMapPicker(undefined);
+  }, true);
+}
+
+/* Resolves with [map, x, y, width, height], null to clear the spot, or
+   undefined when the picker was dismissed. */
+function openMapPicker(current, selfId) {
+  return new Promise(function (resolve) {
+    var overlay = $("#mapPickModal");
+    if (!overlay) { resolve(undefined); return; }
+    /* Opening a second one over the first would strand the first promise. */
+    closeMapPicker(undefined);
+
+    var value = Array.isArray(current) && current.length >= 3 ? current : null;
+    mapPick.resolve = resolve;
+    mapPick.selfId = selfId || "";
+    mapPick.map = value ? String(value[0] || "") : "";
+    mapPick.point = value ? [Math.round(Number(value[1]) || 0), Math.round(Number(value[2]) || 0)] : null;
+    mapPick.width = mapPick.height = 0;
+
+    bindMapPicker();
+    overlay.classList.remove("hidden");
+    syncMapPickReadout();
+
+    refreshMapPickList().then(function () {
+      /* Nothing chosen yet: the gallery is what there is to do next, rather
+         than an empty stage with a button to discover. */
+      if (!mapPick.map && mapPick.list.length) {
+        openMapGallery();
+        return null;
+      }
+      return showMapPickImage(mapPick.map);
+    });
+  });
+}
+
+
+/* --------------------------------------------------------------------------
+   kind: "filepath" -- text + Browse button
+   -------------------------------------------------------------------------- */
+function fieldFilepath(block, f) {
+  var input = el("input", { class: "inp f-text", type: "text", spellcheck: "false",
+    placeholder: "C:\\path\\to\\app.exe" });
+  input.value = block.params[f.key] == null ? "" : String(block.params[f.key]);
+  input.addEventListener("input", function () {
+    block.params[f.key] = input.value; markDirty();
+  });
+  var browse = el("button", { class: "pickbtn", type: "button", title: "Browse" },
+    [el("span", { text: "..." })]);
+  browse.addEventListener("click", function () {
+    api("pick_exe_path").then(function (res) {
+      if (res && res.ok) { block.params[f.key] = res.path; input.value = res.path; markDirty(); }
+    });
+  });
+  return wrapField(f.label || f.key, el("div", { class: "inline-group" }, [input, browse]), f.help);
+}
+
+/* --------------------------------------------------------------------------
+   kind: "condition" / "conditions" -- visual condition builder
+   -------------------------------------------------------------------------- */
+var _condTypes = null;
+function loadCondTypes(cb) {
+  if (_condTypes) { cb(_condTypes); return; }
+  api("get_condition_types").then(function (types) {
+    _condTypes = Array.isArray(types) ? types : [];
+    cb(_condTypes);
+  }).catch(function () { _condTypes = []; cb([]); });
+}
+
+var COND_FIELD_NAMES = {
+  text:           "Текст",
+  region:         "Область",
+  region2:        "Область 2",
+  case_sensitive: "Учитывать регистр",
+  template:       "Шаблон",
+  template2:      "Шаблон 2",
+  operator:       "Оператор",
+  value:          "Значение",
+  min:            "Минимум",
+  max:            "Максимум",
+  threshold:      "Порог",
+  ms:             "Время (мс)",
+  delta:          "Дельта",
+  n:              "N",
+  percent:        "Вероятность %",
+  words:          "Слова (через запятую)",
+  pattern:        "Шаблон regex",
+  px:             "X точки",
+  py:             "Y точки",
+  x:              "X",
+  y:              "Y",
+  min_dist:       "Мин. расстояние",
+  max_dist:       "Макс. расстояние",
+  name:           "Имя процесса / заголовок",
+  title:          "Заголовок окна",
+  path:           "Путь к файлу",
+  condition:      "Условие",
+  conditions:     "Условия",
+};
+
+var COND_FIELD_NAMES_EN = {
+  text: "Text", region: "Region", region2: "Region 2", case_sensitive: "Case sensitive",
+  template: "Image", template2: "Image 2", operator: "Operator", value: "Value",
+  min: "Minimum", max: "Maximum", threshold: "Confidence", ms: "Time (ms)", delta: "Delta",
+  n: "N", percent: "Chance %", words: "Words (comma-separated)", pattern: "Regex pattern",
+  px: "Point X", py: "Point Y", x: "X", y: "Y", min_dist: "Min distance", max_dist: "Max distance",
+  name: "Process name / window title", title: "Window title", path: "File path",
+  condition: "Condition", conditions: "Conditions"
+};
+
+var COND_GROUP_NAMES_EN = {
+  "Текст": "Text", "Числа": "Numbers", "Изображение": "Image", "Расстояние": "Distance",
+  "Система": "System", "Макрос": "Macro", "Логика": "Logic"
+};
+
+var COND_TYPE_NAMES_EN = {
+  text_contains:"Text contains", text_not_contains:"Text does not contain", text_equals:"Text equals",
+  text_starts_with:"Text starts with", text_ends_with:"Text ends with", text_is_empty:"Text is empty",
+  text_is_not_empty:"Text is not empty", text_length:"Text length", text_word_count:"Word count",
+  text_is_number:"Text is a number", text_matches_regex:"Text matches regex", text_is_date:"Text is a date",
+  text_is_time:"Text is a time", text_all_caps:"Text is uppercase", text_contains_any_of:"Text contains any of",
+  text_contains_all_of:"Text contains all of", text_changed:"Text changed", text_stable_for:"Text stable for",
+  text_same_in_regions:"Text same in two regions", text_different_in_regions:"Text different in two regions",
+  text_count:"Text count", text_present_anywhere:"Text appears on screen", text_near_image:"Text near image",
+  number_compare:"Compare number", number_in_range:"Number in range", number_changed:"Number changed",
+  number_increased:"Number increased", number_decreased:"Number decreased", number_delta:"Number delta",
+  ratio_compare:"Compare numbers in two regions", image_present:"Image present", image_absent:"Image absent",
+  image_count:"Image count", pixel_brightness:"Pixel brightness", images_same:"Images same",
+  color_changed:"Color changed at point", screen_frozen:"Screen frozen", distance_from_point:"Distance from point",
+  distance_between_images:"Distance between images", image_in_ring:"Image in ring", images_clustered:"Images clustered",
+  image_moving_toward:"Image moving toward point", images_overlap:"Images overlap", process_running:"Process running",
+  window_exists:"Window exists", file_exists:"File exists", loop_iteration:"Loop iteration", random_chance:"Random chance",
+  not:"NOT (invert)", and:"AND (all true)", or:"OR (any true)", xor:"XOR (exactly one)", n_of:"N of (at least N)"
+};
+
+function condIsRussian() {
+  return String(state.settings.language || "en").toLowerCase().startsWith("ru");
+}
+function condGroupLabel(group) {
+  return condIsRussian() ? group : (COND_GROUP_NAMES_EN[group] || prettyType(group));
+}
+
+function condLabel(cond) {
+  if (!cond || !cond.type) return "\u2014";
+  if (!condIsRussian() && COND_TYPE_NAMES_EN[cond.type]) return COND_TYPE_NAMES_EN[cond.type];
+  if (_condTypes) {
+    var spec = _condTypes.find(function (s) { return s.type === cond.type; });
+    if (spec && spec.label) return spec.label;
+  }
+  return cond.type.replace(/_/g, " ");
+}
+
+function condValueText(value) {
+  if (value === null || value === undefined || value === "") return "…";
+  if (typeof value === "object") {
+    if (value.x !== undefined && value.y !== undefined) return "region";
+    return "…";
+  }
+  var text = String(value);
+  return text.length > 28 ? text.slice(0, 25) + "…" : text;
+}
+
+function condOperatorText(value) {
+  return ({equals:"==", "not equals":"!=", greater:">", "greater or equal":">=", less:"<", "less or equal":"<=", contains:"contains", "not contains":"does not contain"})[value] || value || "?";
+}
+
+function condExpression(cond) {
+  if (!cond || !cond.type) return "…";
+  var p = cond.params || {};
+  if (["and", "or", "xor", "n_of"].indexOf(cond.type) >= 0) {
+    var nested = Array.isArray(p.conditions) ? p.conditions.map(condExpression) : [];
+    var joiner = cond.type === "or" ? " OR " : cond.type === "xor" ? " XOR " : cond.type === "n_of" ? " · " : " AND ";
+    var body = nested.length ? nested.join(joiner) : "…";
+    return cond.type === "n_of" ? "at least " + condValueText(p.n) + " of (" + body + ")" : "(" + body + ")";
+  }
+  var left = condLabel(cond);
+  if (p.operator && p.value !== undefined) {
+    return condValueText(p.region || p.template || p.text || left) + " " + condOperatorText(p.operator) + " " + condValueText(p.value);
+  }
+  if (p.text !== undefined && p.text !== "") return left + " \"" + condValueText(p.text) + "\"";
+  if (p.template) return left + " [" + condValueText(p.template) + "]";
+  return left;
+}
+
+function fieldCondition(block, f) {
+  var btn = el("button", { class: "blocksbtn", type: "button" });
+  function sync() {
+    var c = block.params[f.key];
+    btn.textContent = (c && c.type) ? "IF " + condExpression(c) : t("cond_choose");
+    btn.classList.toggle("filled", !!(c && c.type));
+  }
+  sync();
+  btn.addEventListener("click", function (e) {
+    e.preventDefault();
+    openConditionEditor(block.params[f.key] || null, function (cond) {
+      block.params[f.key] = cond; sync(); markDirty();
+    });
+  });
+  return wrapField(f.label || f.key, btn, f.help);
+}
+
+function fieldConditions(block, f) {
+  if (!Array.isArray(block.params[f.key])) block.params[f.key] = [];
+  var chain = el("div", { class: "cond-inline-chain" });
+  var logic = block.type === "or" ? "OR" : block.type === "xor" ? "XOR" : block.type === "n_of" ? "N OF" : "AND";
+
+  function rebuild() {
+    chain.innerHTML = "";
+    var list = block.params[f.key] || [];
+    chain.appendChild(el("div", { class: "cond-inline-title", text: condIsRussian() ? "Составные условия" : "Combined conditions" }));
+    if (!list.length) {
+      chain.appendChild(el("div", { class: "cond-inline-empty", text: condIsRussian() ? "Добавьте первое условие ниже" : "Add the first condition below" }));
+    }
+    list.forEach(function (cond, index) {
+      if (index > 0) chain.appendChild(el("div", { class: "cond-inline-connector" }, [
+        el("span", { class: "cond-chain-line" }),
+        el("span", { class: "cond-chain-operator", text: logic }),
+        el("span", { class: "cond-chain-line" })
+      ]));
+      var card = el("div", { class: "cond-inline-card" });
+      card.appendChild(el("span", { class: "cond-inline-number", text: String(index + 1) }));
+      card.appendChild(el("span", { class: "cond-inline-expression", text: condExpression(cond) }));
+      var edit = el("button", { class: "btn btn-xs", text: condIsRussian() ? "Изменить" : "Edit" });
+      edit.addEventListener("click", function () {
+        openConditionEditor(cond, function (next) { if (next) { list[index] = next; rebuild(); markDirty(); } });
+      });
+      var remove = el("button", { class: "btn btn-xs btn-danger", text: "×" });
+      remove.addEventListener("click", function () { list.splice(index, 1); rebuild(); markDirty(); });
+      card.appendChild(edit); card.appendChild(remove); chain.appendChild(card);
+    });
+    var add = el("button", { class: "btn btn-sm cond-inline-add", text: "+ " + (condIsRussian() ? "Добавить условие" : "Add condition") });
+    add.addEventListener("click", function () {
+      openConditionEditor(null, function (next) { if (next) { list.push(next); rebuild(); markDirty(); } });
+    });
+    chain.appendChild(add);
+  }
+  rebuild();
+  return wrapField(f.label || f.key, chain, f.help);
+}
+
+function openConditionEditor(current, onSave) {
+  loadCondTypes(function (types) {
+    var overlay = el("div", { class: "overlay cond-overlay" });
+    var modal = el("div", { class: "modal cond-modal cond-simple-modal" });
+    var details = el("div", { class: "cond-details cond-simple-details" });
+    var typeSelect = el("select", { class: "inp cond-type-select" });
+    var working = current ? JSON.parse(JSON.stringify(current)) : null;
+    var expression = el("div", { class: "cond-expression-preview" });
+
+    var groupOrder = ["Текст", "Числа", "Изображение", "Расстояние", "Система", "Макрос", "Логика"];
+    var grouped = {};
+    types.forEach(function (spec) { (grouped[spec.group] = grouped[spec.group] || []).push(spec); });
+    Object.keys(grouped).sort(function (a, b) {
+      var ai = groupOrder.indexOf(a), bi = groupOrder.indexOf(b);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    }).forEach(function (group) {
+      var optgroup = document.createElement("optgroup");
+      optgroup.label = condGroupLabel(group);
+      grouped[group].sort(function (a, b) {
+        return condLabel({ type: a.type }).localeCompare(condLabel({ type: b.type }));
+      }).forEach(function (spec) {
+        optgroup.appendChild(el("option", {
+          value: spec.type,
+          text: condLabel({ type: spec.type })
+        }));
+      });
+      typeSelect.appendChild(optgroup);
+    });
+
+    var logicButtons = el("div", { class: "cond-logic-buttons" });
+    var logicNames = [
+      ["and", "AND", "all conditions must be true", "все условия должны быть истинны"],
+      ["or", "OR", "any condition can be true", "достаточно одного условия"],
+      ["xor", "XOR", "exactly one must be true", "истинно ровно одно"],
+      ["n_of", "N OF", "at least N conditions", "минимум N условий"]
+    ];
+    logicNames.forEach(function (entry) {
+      var button = el("button", {
+        class: "btn cond-logic-btn",
+        type: "button",
+        text: entry[1],
+        title: condIsRussian() ? entry[3] : entry[2]
+      });
+      button.dataset.logic = entry[0];
+      button.addEventListener("click", function () {
+        typeSelect.value = entry[0];
+        renderDetails();
+      });
+      logicButtons.appendChild(button);
+    });
+
+    function refreshExpression() {
+      expression.textContent = working && working.type
+        ? "IF " + condExpression(working)
+        : (condIsRussian() ? "ЕСЛИ выберите условие..." : "IF choose a condition...");
+    }
+    function renderDetails() {
+      var spec = types.find(function (s) { return s.type === typeSelect.value; });
+      details.innerHTML = "";
+      if (!spec) {
+        details.appendChild(el("p", { class: "cond-hint", text: condIsRussian() ? "Выберите условие выше" : "Choose a condition above" }));
+        refreshExpression();
+        return;
+      }
+      if (!working || working.type !== spec.type) {
+        working = { type: spec.type, params: {} };
+        (spec.fields || []).forEach(function (fd) {
+          working.params[fd.key] = fd.default !== undefined ? fd.default : null;
+        });
+      }
+      (spec.fields || []).forEach(function (fd) {
+        var node = renderCondField(working, fd);
+        if (node) details.appendChild(node);
+      });
+      refreshExpression();
+      logicButtons.querySelectorAll(".cond-logic-btn").forEach(function (button) {
+        button.classList.toggle("active", button.dataset.logic === typeSelect.value);
+      });
+    }
+
+    if (working && working.type) typeSelect.value = working.type;
+    else typeSelect.selectedIndex = -1;
+    typeSelect.addEventListener("change", renderDetails);
+    details.addEventListener("input", refreshExpression);
+    details.addEventListener("change", refreshExpression);
+    renderDetails();
+
+    var btnCancel = el("button", { class: "btn", text: t("btn_cancel") });
+    var btnClear  = el("button", { class: "btn btn-danger", text: t("cond_clear") });
+    var btnSave   = el("button", { class: "btn btn-primary", text: t("btn_ok") });
+    function close() { if (document.body.contains(overlay)) document.body.removeChild(overlay); }
+    btnCancel.addEventListener("click", close);
+    btnClear.addEventListener("click",  function () { onSave(null); close(); });
+    btnSave.addEventListener("click",   function () { onSave(working ? JSON.parse(JSON.stringify(working)) : null); close(); });
+
+    modal.appendChild(expression);
+    modal.appendChild(el("div", { class: "cond-simple-picker" }, [
+      el("div", { class: "cond-step", text: condIsRussian() ? "1. Что проверяем?" : "1. What are we checking?" }),
+      el("div", { class: "cond-hint", text: condIsRussian() ? "Выберите действие, которое должно быть истинным." : "Choose the statement that should be true." }),
+      el("div", { class: "cond-logic-label", text: condIsRussian() ? "Логика нескольких условий" : "Combine multiple conditions" }),
+      logicButtons,
+      el("label", { class: "cond-type-label", text: condIsRussian() ? "Условие" : "Condition" }),
+      typeSelect
+    ]));
+    modal.appendChild(el("div", { class: "cond-simple-form" }, [
+      el("div", { class: "cond-step", text: condIsRussian() ? "2. Заполните значения" : "2. Fill in the values" }),
+      details
+    ]));
+    modal.appendChild(el("div", { class: "modal-foot cond-footer" }, [btnClear, btnCancel, btnSave]));
+    overlay.appendChild(modal);
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+    document.body.appendChild(overlay);
+  });
+}
+
+function renderCondField(cond, f) {
+  var fRu = Object.assign({}, f, {
+    label: (condIsRussian() ? COND_FIELD_NAMES[f.key] : COND_FIELD_NAMES_EN[f.key]) || f.label || f.key
+  });
+  var proxy = { type: cond.type, params: cond.params || (cond.params = {}) };
+  f = fRu;
+  switch (f.kind) {
+    case "int":        return fieldNumber(proxy, f, null, true);
+    case "float":      return fieldNumber(proxy, f, null, false);
+    case "text":       return fieldText(proxy, f);
+    case "bool":       return fieldBool(proxy, f);
+    case "choice":     return fieldChoice(proxy, f);
+    case "region":     return fieldRegion(proxy, f);
+    case "template":   return fieldTemplate(proxy, f);
+    case "condition":  return fieldCondition(proxy, f);
+    case "conditions": return fieldConditions(proxy, f);
+    default:           return fieldText(proxy, f);
+  }
+}
+
+function openConditionsListEditor(list, onSave, logicType) {
+  var working = Array.isArray(list) ? JSON.parse(JSON.stringify(list)) : [];
+  var overlay = el("div", { class: "overlay cond-overlay" });
+  var modal   = el("div", { class: "modal cond-modal-list" });
+  var listEl  = el("div", { class: "cond-list" });
+
+  function rebuild() {
+    listEl.innerHTML = "";
+    if (!working.length) {
+      listEl.appendChild(el("p", { class: "cond-hint", text: t("cond_empty") }));
+      return;
+    }
+    working.forEach(function (cond, i) {
+      if (i > 0) {
+        var link = el("div", { class: "cond-chain-link" });
+        link.appendChild(el("span", { class: "cond-chain-line" }));
+        var connector = logicType === "or" ? "OR" : logicType === "xor" ? "XOR" : logicType === "n_of" ? "N OF" : "AND";
+        link.appendChild(el("span", { class: "cond-chain-operator", text: connector }));
+        link.appendChild(el("span", { class: "cond-chain-line" }));
+        listEl.appendChild(link);
+      }
+      var row     = el("div", { class: "cond-list-row cond-chain-row" });
+      var keyword = el("span", { class: "cond-expression-keyword", text: i === 0 ? "IF" : "" });
+      var lbl     = el("span", { class: "cond-list-label", text: cond && cond.type ? condExpression(cond) : "\u2014" });
+      var btnEdit = el("button", { class: "btn btn-xs", text: "\u270e" });
+      var btnDel  = el("button", { class: "btn btn-xs btn-danger", text: "\u2715" });
+      var btnUp = el("button", { class: "btn btn-xs", text: "↑", title: condIsRussian() ? "Выше" : "Move up" });
+      var btnDown = el("button", { class: "btn btn-xs", text: "↓", title: condIsRussian() ? "Ниже" : "Move down" });
+      btnUp.disabled = i === 0; btnDown.disabled = i === working.length - 1;
+      btnUp.addEventListener("click", function () { if (i > 0) { var item = working.splice(i, 1)[0]; working.splice(i - 1, 0, item); rebuild(); } });
+      btnDown.addEventListener("click", function () { if (i < working.length - 1) { var item = working.splice(i, 1)[0]; working.splice(i + 1, 0, item); rebuild(); } });
+      btnEdit.addEventListener("click", function () {
+        openConditionEditor(cond, function (c) { if (c) { working[i] = c; rebuild(); } });
+      });
+      btnDel.addEventListener("click", function () { working.splice(i, 1); rebuild(); });
+      row.appendChild(keyword); row.appendChild(lbl); row.appendChild(btnUp); row.appendChild(btnDown); row.appendChild(btnEdit); row.appendChild(btnDel);
+      listEl.appendChild(row);
+    });
+  }
+  rebuild();
+
+  var btnAdd    = el("button", { class: "btn", text: t("cond_add") });
+  var btnCancel = el("button", { class: "btn", text: t("btn_cancel") });
+  var btnSave   = el("button", { class: "btn btn-primary", text: t("btn_ok") });
+  function close() { if (document.body.contains(overlay)) document.body.removeChild(overlay); }
+  btnAdd.addEventListener("click", function () {
+    openConditionEditor(null, function (c) { if (c) { working.push(c); rebuild(); } });
+  });
+  btnCancel.addEventListener("click", close);
+  btnSave.addEventListener("click", function () { onSave(JSON.parse(JSON.stringify(working))); close(); });
+
+  modal.appendChild(el("div", {
+    class: "cond-chain-head",
+    text: (condIsRussian() ? "Логика: " : "Logic: ") +
+      (logicType === "or" ? "OR — достаточно одного" : logicType === "xor" ? "XOR — ровно одно" : logicType === "n_of" ? "N OF — минимум N" : condIsRussian() ? "AND — все должны быть истинны" : "AND — all must be true")
+  }));
+  modal.appendChild(listEl);
+  modal.appendChild(el("div", { class: "modal-foot cond-footer" }, [btnAdd, btnCancel, btnSave]));
+  overlay.appendChild(modal);
+  overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+  document.body.appendChild(overlay);
 }
 
 function fieldRecording(block, f) {
@@ -2726,7 +3969,9 @@ function renderIoMenus() {
 function recOptions() {
   return {
     keepMoves: !!($("#optRecordMove") && $("#optRecordMove").checked),
-    minGap: toInt($("#optMinGap") ? $("#optMinGap").value : 60, 60)
+    /* Math.max(0): a negative number in the box would otherwise be
+       passed straight through. 0 = no wait blocks at all. */
+    minGap: Math.max(0, toInt($("#optMinGap") ? $("#optMinGap").value : 60, 60))
   };
 }
 
@@ -2760,7 +4005,11 @@ async function toggleRecording() {
     if (!stopped.ok) { toast(t("rec_not_recording"), "err"); return; }
     setRecCount(stopped.count || 0);
     state.previewSource = { kind: "pending" };
-    setPreview(stopped.preview || []);
+    /* Not setPreview(stopped.preview): that list was built with the
+       backend defaults, so recorded mouse movement was missing from
+       Converted blocks until some later refresh rebuilt it. Go through
+       refreshPreview, which uses the options on this screen. */
+    await refreshPreview();
     showScreen("record");
   } else {
     var started = await api("start_recording");
@@ -2806,7 +4055,7 @@ function renderPreview() {
     }, [
       check,
       el("span", { class: "prow-ord", text: "#" + (index + 1) }),
-      el("span", { class: "prow-type", text: spec ? spec.label : block.type }),
+      el("span", { class: "prow-type", text: spec ? spec.label : prettyType(block.type) }),
       el("span", { class: "prow-params", text: paramSummary(block) })
     ]));
   });
@@ -3111,7 +4360,7 @@ async function resetRecordingActions() {
    A fallback list can itself hold a Vision block with its own fallback list,
    so the open lists are a stack and the modal shows the top of it.
    ========================================================================== */
-var blocksEdit = { stack: [], open: false, onLabel: null };
+var blocksEdit = { stack: [], open: false, onLabel: null, custom: false };
 
 var blocksEditCtx = {
   scope: "blocksedit",
@@ -3168,7 +4417,7 @@ function openBlocksEditor(block, f, onLabel) {
   var spec = specFor(block.type);
   blocksEdit.stack.push({
     list: block.params[f.key],
-    title: (f.label || t("blocks_edit_title")) + " — " + (spec ? spec.label : block.type)
+    title: (f.label || t("blocks_edit_title")) + " — " + (spec ? spec.label : prettyType(block.type))
   });
   if (blocksEdit.stack.length === 1) {
     blocksEdit.onLabel = onLabel || null;
@@ -3182,6 +4431,7 @@ function openBlocksEditor(block, f, onLabel) {
 function buildBlocksEditPalette() {
   buildPalette($("#blocksEditPalette"), {
     scope: "blocksedit",
+    allowCustom: false,
     hint: t("palette_drag_list"),
     onPick: function (chosen) {
       blocksEditCtx.list().push(makeBlock(chosen.type));
@@ -3194,6 +4444,14 @@ function buildBlocksEditPalette() {
 /* Closes one level; the modal itself only goes away with the last one. */
 function closeBlocksEditor() {
   if (!blocksEdit.open) return;
+  if (blocksEdit.custom) {
+    blocksEdit.stack = [];
+    blocksEdit.open = false;
+    blocksEdit.custom = false;
+    $("#blocksEditModal").classList.add("hidden");
+    $("#blocksEditCustomName").classList.add("hidden");
+    return;
+  }
   blocksEdit.stack.pop();
   if (blocksEdit.stack.length) {
     renderBlocksEditList();
@@ -3207,6 +4465,35 @@ function closeBlocksEditor() {
   /* The counters on every row are derived from these lists, so a rebuild is
      the cheapest way to make all of them right again. */
   renderPhases();
+}
+
+async function finishBlocksEditor() {
+  if (!blocksEdit.custom) { closeBlocksEditor(); return; }
+  var nameNode = $("#blocksEditCustomName");
+  var name = nameNode ? nameNode.value.trim() : "";
+  var list = blocksEditCtx.list();
+  if (!name) { toast(condIsRussian() ? "Введите имя блока" : "Enter a block name", "err"); return; }
+  if (!list.length) { toast(condIsRussian() ? "Добавьте хотя бы один блок" : "Add at least one block", "err"); return; }
+  var result = await api("save_block_group", name, JSON.parse(JSON.stringify(list)));
+  if (!result || !result.ok) { toast(t("grp_save_failed"), "err"); return; }
+  state.groups = result.groups || [];
+  state.activePalette = "__custom__";
+  closeBlocksEditor();
+  renderPalette();
+  toast(condIsRussian() ? "Пользовательский блок сохранён" : "Custom block saved", "ok");
+}
+
+function openCustomBlockEditor() {
+  var overlay = $("#blocksEditModal");
+  if (!overlay) return;
+  blocksEdit.stack = [{ list: [], title: condIsRussian() ? "Новый пользовательский блок" : "New custom block" }];
+  blocksEdit.open = true;
+  blocksEdit.custom = true;
+  var nameNode = $("#blocksEditCustomName");
+  if (nameNode) { nameNode.value = ""; nameNode.classList.remove("hidden"); }
+  overlay.classList.remove("hidden");
+  buildBlocksEditPalette();
+  renderBlocksEditList();
 }
 
 async function clearBlocksEditor() {
@@ -3533,11 +4820,34 @@ function drawCapture(canvas, dataUri, width, height) {
   });
 }
 
-async function captureForImages() {
+/* --------------------------------------------------------------------------
+   Which window a screenshot is OF is a separate question from which window a
+   macro DRIVES, and this screen is where the two came apart: images and maps
+   are often framed in a window that is not the target at all (a wiki page, a
+   second client, the whole desktop). So every capture from here is aimed
+   explicitly, and picking one never touches the macro target.
+
+   The choice is remembered for the session so Re-capture and Re-shoot do not
+   ask again -- re-shooting is by definition another shot of the same thing.
+   -------------------------------------------------------------------------- */
+var capShot = { hwnd: null, title: "" };
+
+function capShotLabel() {
+  if (capShot.hwnd === null) return t("winpick_target");
+  return capShot.title || (capShot.hwnd ? String(capShot.hwnd) : t("target_screen"));
+}
+
+async function captureForImages(hwnd, title) {
   var canvas = $("#imgCanvas");
+  /* undefined means "the window already chosen" (Re-capture); null is the
+     macro target, which is what the pickers outside this screen still use. */
+  if (hwnd !== undefined) {
+    capShot.hwnd = hwnd === null ? null : Number(hwnd || 0);
+    capShot.title = title || "";
+  }
   $("#imgCanvasEmpty").classList.remove("hidden");
   $("#imgCanvasEmpty").textContent = t("img_capturing");
-  var result = await api("capture_target_preview");
+  var result = await api("capture_target_preview", capShot.hwnd);
   if (!result || !result.ok) {
     $("#imgCanvasEmpty").textContent = t("img_capture_failed")
       + (result && result.reason ? " (" + result.reason + ")" : "");
@@ -3548,8 +4858,17 @@ async function captureForImages() {
   $("#imgCanvasEmpty").classList.add("hidden");
   imgSel.setNatural(result.width, result.height);
   imgSel.clear();
-  $("#captureHint").textContent = tf("img_capture_size", result.width + " × " + result.height);
+  $("#captureHint").textContent = tf("img_shot_from", capShotLabel()) + " · "
+    + tf("img_capture_size", result.width + " × " + result.height);
   return true;
+}
+
+/* Ask, then shoot. A dismissed picker shoots nothing at all: a screenshot of
+   whatever happened to be the target is worse than no screenshot. */
+async function askAndCapture() {
+  var choice = await openWinPicker();
+  if (!choice) { toast(t("img_shot_cancelled")); return false; }
+  return await captureForImages(choice.hwnd, choice.title);
 }
 
 /* The Capture button's whole job: take the shot, then hand it straight to the
@@ -3557,7 +4876,7 @@ async function captureForImages() {
    and a mouse that has to be steady to a source pixel; the panel stays as the
    preview of what is loaded, but it is no longer where the work is done. */
 async function captureAndCrop() {
-  var ok = await captureForImages();
+  var ok = await askAndCapture();
   if (!ok) return false;
   if (!bigView.open) openImgLargeView();
   return true;
@@ -3571,7 +4890,7 @@ async function reshootTemplate(name) {
   var nameInput = $("#imgName");
   if (nameInput) nameInput.value = name;
   bigView.reshoot = name;
-  var ok = await captureForImages();
+  var ok = await askAndCapture();
   /* The mode must never outlive the view it belongs to: left set, the next
      ordinary save would quietly write to this template instead. */
   if (!ok || !openImgLargeView()) bigView.reshoot = "";
@@ -3579,6 +4898,7 @@ async function reshootTemplate(name) {
 
 async function recaptureInBigView() {
   if (!bigView.open) return;
+  /* Same window as the shot on screen -- no argument, no second question. */
   await captureForImages();
 }
 
@@ -3711,6 +5031,134 @@ async function saveCrop(asVariant) {
 }
 
 /* --------------------------------------------------------------------------
+   Maps are the other thing a shot can become: the same frame, written to the
+   Maps folder instead of Assets, where Place Unit picks spots on it.
+
+   No crop is required -- a map is normally the whole window -- so a selection
+   is used when there is one and ignored when there is not, rather than making
+   the user drag a rectangle around the entire frame every time.
+   -------------------------------------------------------------------------- */
+async function saveMapCrop() {
+  var name = ((bigView.open ? $("#bigViewName") : $("#imgName")).value || "").trim()
+    || (($("#imgName") && $("#imgName").value) || "").trim();
+  if (!name) {
+    toast(t("img_need_name"), "err");
+    var field = bigView.open ? $("#bigViewName") : $("#imgName");
+    if (field) field.focus();
+    return null;
+  }
+  var rect = imgSel.get();
+  var whole = !rect || rect[2] < 2 || rect[3] < 2;
+  var result = await api("save_map_crop", name,
+                        whole ? 0 : rect[0], whole ? 0 : rect[1],
+                        whole ? 0 : rect[2], whole ? 0 : rect[3], whole);
+  if (!result) return null;
+  if (!result.ok) { toast(t("img_save_failed") + ": " + result.reason, "err"); return null; }
+
+  if (Array.isArray(result.maps)) state.maps = result.maps;
+  /* Re-shooting a map writes new bytes behind a name every cached thumbnail
+     and every open picker still shows the old picture for. */
+  invalidateMapThumbs();
+  renderTemplates();
+  toast(tf("img_map_saved", result.name), "ok");
+  if (bigView.open) closeImgLargeView();
+  return result.name;
+}
+
+/* Re-shooting a map is an ordinary capture with the name filled in: the save
+   goes over the existing picture, so the blocks pointing at it follow. */
+async function reshootMap(name) {
+  if (bigView.open) closeImgLargeView();
+  var nameInput = $("#imgName");
+  if (nameInput) nameInput.value = name;
+  var ok = await askAndCapture();
+  if (ok) openImgLargeView();
+}
+
+async function importMapFile() {
+  var result = await api("import_map", "");
+  if (!result) return;
+  if (!result.ok) {
+    if (result.reason !== "cancelled") toast(t("img_map_import_failed"), "err");
+    return;
+  }
+  if (Array.isArray(result.maps)) state.maps = result.maps;
+  invalidateMapThumbs();
+  renderTemplates();
+  toast(tf("img_map_imported", result.name), "ok");
+}
+
+var mapThumbCache = {};
+
+function invalidateMapThumbs() { mapThumbCache = {}; }
+
+function mapThumb(name) {
+  var key = String(name);
+  if (!mapThumbCache[key]) mapThumbCache[key] = apiQ("get_map_thumb", key, 320);
+  return mapThumbCache[key];
+}
+
+async function refreshMaps() {
+  var list = await apiQ("list_maps");
+  if (Array.isArray(list)) state.maps = list;
+  invalidateMapThumbs();
+  renderTemplates();
+}
+
+/* The grid holds two kinds of picture in one place, and a thumbnail alone
+   never says which folder it came from -- so each card is tagged. */
+function kindBadge(kind) {
+  return el("span", {
+    class: "tpl-badge is-" + kind,
+    text: t(kind === "map" ? "img_kind_map" : "img_kind_ui")
+  });
+}
+
+function mapCard(name) {
+  var thumb = el("div", { class: "tpl-thumb" }, [el("span", { class: "hint", text: "…" })]);
+  var size = el("span", { text: "…" });
+  mapThumb(name).then(function (info) {
+    thumb.innerHTML = "";
+    if (info && info.ok) {
+      thumb.appendChild(el("img", { src: info.image, alt: name }));
+      size.textContent = tf("img_map_size", info.width, info.height);
+    } else {
+      thumb.appendChild(el("span", { class: "hint", text: t("img_no_preview") }));
+      size.textContent = t("missing_suffix");
+    }
+  });
+
+  var shootBtn = el("button", { class: "btn btn-sm" },
+    [icon("i-camera", "ic-xs"), el("span", { text: t("img_map_reshoot") })]);
+  attachTip(shootBtn, t("img_map_reshoot"), tf("img_map_reshoot_tip", name));
+  shootBtn.addEventListener("click", function () { reshootMap(name); });
+
+  /* The picker is also the only view of a map that shows the spots on it, so
+     it doubles as "what does this map already have on it?". */
+  var viewBtn = el("button", { class: "btn btn-sm", text: t("mappick_title") });
+  attachTip(viewBtn, t("mappick_title"), tf("img_map_pick_tip", name));
+  viewBtn.addEventListener("click", function () { openMapPicker([name, 0, 0, 0, 0], ""); });
+
+  var delBtn = el("button", { class: "iconbtn danger", title: t("img_map_delete_tip") }, [icon("i-trash", "ic-xs")]);
+  delBtn.addEventListener("click", async function () {
+    var yes = await askConfirm(tf("img_ask_delete_map", name), t("img_ask_delete_map_body"));
+    if (!yes) return;
+    var res = await api("delete_map", name);
+    if (!res) return;
+    if (Array.isArray(res.maps)) state.maps = res.maps;
+    invalidateMapThumbs();
+    renderTemplates();
+  });
+
+  return el("div", { class: "tpl-card is-map" }, [
+    thumb,
+    el("div", { class: "tpl-name", text: name, title: name }),
+    el("div", { class: "tpl-meta" }, [kindBadge("map"), size]),
+    el("div", { class: "tpl-actions" }, [shootBtn, viewBtn, el("span", { class: "flex-spacer" }), delBtn])
+  ]);
+}
+
+/* --------------------------------------------------------------------------
    Thumbnails are a bridge round-trip each, and the rows that show them are
    re-rendered on every drag, duplicate and delete -- so they are fetched once
    per name and kept until something rewrites the Assets folder.
@@ -3744,7 +5192,8 @@ function renderTemplates() {
   var host = $("#templateGrid");
   if (!host) return;
   host.innerHTML = "";
-  if (!state.templates.length) {
+  var maps = state.maps || [];
+  if (!state.templates.length && !maps.length) {
     host.appendChild(el("div", { class: "empty", text: t("img_none") }));
     return;
   }
@@ -3795,11 +5244,106 @@ function renderTemplates() {
       thumb,
       el("div", { class: "tpl-name", text: tpl.name, title: tpl.name }),
       el("div", { class: "tpl-meta" }, [
+        kindBadge("ui"),
         el("span", { text: tn("img_variant_1", "img_variant_n", tpl.count) }),
         el("span", { class: "flex-spacer" }), result
       ]),
       el("div", { class: "tpl-actions" }, [testBtn, shootBtn, el("span", { class: "flex-spacer" }), delBtn])
     ]));
+  });
+
+  maps.forEach(function (name) { host.appendChild(mapCard(name)); });
+}
+
+/* ==========================================================================
+   15a2. "WHICH WINDOW DO I SHOOT?"
+
+   Resolves with { hwnd, title } or undefined when dismissed. hwnd 0 is the
+   whole screen (the app hides itself for that one), and nothing here writes
+   the macro target -- set_target is deliberately not called.
+   ========================================================================== */
+var winPick = { resolve: null, filter: "", bound: false };
+
+function winPickRow(title, subtitle, sizeText, extraClass, onPick) {
+  var row = el("div", { class: "win-item" + (extraClass ? " " + extraClass : ""), title: title }, [
+    el("span", { class: "win-proc", text: subtitle }),
+    el("span", { class: "win-title", text: title }),
+    el("span", { class: "win-size", text: sizeText })
+  ]);
+  row.addEventListener("click", onPick);
+  return row;
+}
+
+function renderWinPickList() {
+  var host = $("#winPickList");
+  if (!host) return;
+  var query = (winPick.filter || "").toLowerCase();
+  host.innerHTML = "";
+
+  /* Always offered, never filtered out: it is the fallback when the thing to
+     photograph is not a window at all (an overlay, several windows at once). */
+  host.appendChild(winPickRow(t("winpick_screen"), "—", "", "win-screen",
+    function () { closeWinPicker({ hwnd: 0, title: t("target_screen") }); }));
+
+  var rows = (state.windows || []).filter(function (w) {
+    if (!query) return true;
+    return (String(w.title) + " " + String(w.process)).toLowerCase().indexOf(query) >= 0;
+  });
+  if (!rows.length) {
+    host.appendChild(el("div", {
+      class: "empty",
+      text: query ? t("set_no_window_match") : t("set_no_windows")
+    }));
+    return;
+  }
+  rows.forEach(function (w) {
+    var sizeText = w.minimized ? t("set_minimized") : (w.width + "x" + w.height);
+    var current = state.status.hwnd && Number(state.status.hwnd) === Number(w.hwnd);
+    host.appendChild(winPickRow(
+      w.title, (w.process || "?") + (current ? " · " + t("winpick_target") : ""),
+      sizeText, (current ? "selected" : "") + (w.minimized ? " win-min" : ""),
+      function () { closeWinPicker({ hwnd: w.hwnd, title: w.title }); }));
+  });
+}
+
+function closeWinPicker(value) {
+  var overlay = $("#winPickModal");
+  if (overlay) overlay.classList.add("hidden");
+  var pending = winPick.resolve;
+  winPick.resolve = null;
+  if (pending) pending(value);
+}
+
+function bindWinPicker() {
+  if (winPick.bound) return;
+  winPick.bound = true;
+  $("#winPickFilter").addEventListener("input", function () {
+    winPick.filter = $("#winPickFilter").value.trim();
+    renderWinPickList();
+  });
+  $("#btnWinPickRefresh").addEventListener("click", async function () {
+    await refreshWindows();
+    renderWinPickList();
+  });
+  $("#btnWinPickCancel").addEventListener("click", function () { closeWinPicker(undefined); });
+  $("#btnWinPickClose").addEventListener("click", function () { closeWinPicker(undefined); });
+}
+
+async function openWinPicker() {
+  var overlay = $("#winPickModal");
+  if (!overlay) return { hwnd: null, title: "" };
+  bindWinPicker();
+  /* Asked for fresh every time: the window the user means was very often
+     opened after the app was, and a stale list has no row for it. */
+  await refreshWindows();
+  winPick.filter = "";
+  $("#winPickFilter").value = "";
+  renderWinPickList();
+  overlay.classList.remove("hidden");
+  $("#winPickFilter").focus();
+  return await new Promise(function (resolve) {
+    if (winPick.resolve) winPick.resolve(undefined);
+    winPick.resolve = resolve;
   });
 }
 
@@ -3898,7 +5442,7 @@ async function templatePickerCaptureNew() {
   closeTemplatePicker(undefined);
   if (!resolve) return;
 
-  var ok = await captureForImages();
+  var ok = await askAndCapture();
   if (!ok) { resolve(undefined); return; }
   bigView.pick = resolve;
   if (!openImgLargeView()) { bigView.pick = null; resolve(undefined); }
@@ -4267,6 +5811,8 @@ function relocalize() {
   renderEnvRow(state.boot || {});
   repaintSaveHint();
   paintRegionReadout();
+  if (mapGal.open) renderMapGallery();
+  if (mapPick.resolve) syncMapPickChoose();
   if (recEdit.open) renderRecEditList();
   if (blocksEdit.open) { buildBlocksEditPalette(); renderBlocksEditList(); }
   /* The control bar and the target chip are written from the poll, not from
@@ -4324,7 +5870,7 @@ async function setLanguage(lang) {
    settings only ever hands back a masked form, and this screen only ever
    shows that.
    ========================================================================== */
-var hookState = { enabled: false, configured: false, masked: "", username: "" };
+var hookState = { enabled: false, configured: false, masked: "", username: "", design: {} };
 
 function renderWebhook() {
   var card = $("#webhookCard");
@@ -4337,6 +5883,17 @@ function renderWebhook() {
   $("#hookMasked").textContent = hookState.masked || t("hook_no_url");
   var user = $("#hookUser");
   if (user && document.activeElement !== user) user.value = hookState.username || "";
+  var design = hookState.design || {};
+  var title = $("#hookTitle");
+  var description = $("#hookDescription");
+  var color = $("#hookColor");
+  var footer = $("#hookFooter");
+  var timestamp = $("#hookTimestamp");
+  if (title && document.activeElement !== title) title.value = design.title || "";
+  if (description && document.activeElement !== description) description.value = design.description || "";
+  if (color && document.activeElement !== color) color.value = /^#[0-9a-f]{6}$/i.test(design.color || "") ? design.color : "#8b5cf6";
+  if (footer && document.activeElement !== footer) footer.value = design.footer || "";
+  if (timestamp) timestamp.checked = design.timestamp !== false;
 
   var state_ = $("#hookState");
   var text = $("#hookStateText");
@@ -4363,7 +5920,8 @@ function applyWebhookResult(result) {
     enabled: !!result.enabled,
     configured: !!result.configured,
     masked: result.masked || "",
-    username: result.username || ""
+    username: result.username || "",
+    design: result.design || {}
   };
   renderWebhook();
   return true;
@@ -4390,6 +5948,17 @@ async function saveWebhookUrl() {
   $("#hookHint").textContent = t("hook_saved_hint");
   applyWebhookResult(result);
   toast(t("hook_url_saved"), "ok");
+}
+
+async function saveWebhookDesign() {
+  var result = await api("save_webhook_settings", null, null, null, {
+    title: $("#hookTitle").value,
+    description: $("#hookDescription").value,
+    color: $("#hookColor").value,
+    footer: $("#hookFooter").value,
+    timestamp: $("#hookTimestamp").checked
+  });
+  if (result) applyWebhookResult(result);
 }
 
 async function toggleWebhookEnabled() {
@@ -4436,6 +6005,10 @@ function applySettingsToUI() {
 
   $("#setRecordMove").checked = !!s.record_mouse_move;
   $("#optRecordMove").checked = !!s.record_mouse_move;
+  if ($("#optMinGap")) $("#optMinGap").value = toInt(s.record_min_gap_ms, 60);
+  if ($("#setRobloxShare")) $("#setRobloxShare").value = s.roblox_share_link || "";
+  if ($("#setRobloxPlace")) $("#setRobloxPlace").value = s.roblox_place_id || "";
+  if ($("#setRobloxCode")) $("#setRobloxCode").value = s.roblox_link_code || "";
   syncLoopControls();
   renderHotkeys();
   renderThemes();
@@ -4525,6 +6098,17 @@ async function startMacro() {
 async function stopMacro() { await api("stop_macro"); pollStatus(); }
 async function togglePause() { await api("toggle_pause"); pollStatus(); }
 
+/* Seconds as 0:07 / 3:41 / 1:02:33. Hours only appear once there are any,
+   so the common case stays as short as the pill is wide. */
+function formatRunTime(seconds) {
+  var total = Math.max(0, Math.floor(Number(seconds) || 0));
+  var h = Math.floor(total / 3600);
+  var m = Math.floor((total % 3600) / 60);
+  var s = total % 60;
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  return h ? (h + ":" + pad(m) + ":" + pad(s)) : (m + ":" + pad(s));
+}
+
 function applyStatus(status) {
   if (!status) return;
   state.status.running = !!status.running;
@@ -4541,6 +6125,15 @@ function applyStatus(status) {
 
   var dot = $("#runDot");
   dot.className = "run-dot" + (status.running ? (status.paused ? " pause" : " on") : "");
+  /* The clock keeps the finished run's duration instead of snapping back to
+     zero, so "how long did that take" survives pressing Stop. */
+  var clock = $("#statusTime");
+  if (clock) {
+    clock.textContent = formatRunTime(status.elapsed_s || 0);
+    clock.classList.toggle("on", !!status.running && !status.paused);
+    clock.title = tf("ctl_runtime_tip", formatRunTime(status.elapsed_s || 0),
+                     status.passes || 0);
+  }
   $("#statusAction").textContent = status.action || t("ctl_idle");
   $("#statusLoop").textContent = tf("ctl_loop", status.loop || 0);
   $("#statusMeta").textContent = status.recording
@@ -4656,6 +6249,166 @@ async function toggleMaximize() {
 }
 
 /* ==========================================================================
+   20a. BLOCK SEARCH
+   ========================================================================== */
+function applyBlockSearch() {
+  var inp = $("#blockSearchInp");
+  var q = inp ? inp.value.trim().toLowerCase() : "";
+  var total = 0, shown = 0;
+  $$("#phases .phase").forEach(function (ph) {
+    var rows = $$("#phases .block-row", ph);
+    var phShown = 0;
+    rows.forEach(function (row) {
+      total++;
+      var label = ($("#phases .row-type", row) || row.querySelector(".row-type"));
+      var text = label ? label.textContent.toLowerCase() : "";
+      var vis = !q || text.indexOf(q) >= 0;
+      row.style.display = vis ? "" : "none";
+      if (vis) { phShown++; shown++; }
+    });
+    // If all rows hidden and searching, show a hint; else restore dropzone visibility
+    var dz = ph.querySelector(".dropzone");
+    if (dz) dz.style.display = (rows.length === 0 || (q && phShown === 0)) ? "" : "none";
+  });
+  var cnt = $("#blockSearchCount");
+  if (cnt) cnt.textContent = q && total > 0 ? shown + " / " + total : "";
+}
+
+/* ==========================================================================
+   20b. DEBUGGER
+   ========================================================================== */
+var dbg = { active: false, steps: [], cursor: -1, panel: null };
+
+function debugBuildSteps() {
+  var steps = [];
+  var phases = (state.macro && state.macro.phases) ? state.macro.phases : {};
+  var order = ["setup", "loop", "watch"];
+  order.forEach(function (ph) {
+    var arr = phases[ph];
+    if (!Array.isArray(arr)) return;
+    arr.forEach(function (block, idx) {
+      steps.push({ phase: ph, idx: idx, block: block });
+    });
+  });
+  return steps;
+}
+
+function debugHighlight(stepObj) {
+  $$("#phases .block-row").forEach(function (r) { r.classList.remove("debug-current"); });
+  if (!stepObj) return;
+  // Find block row by its rendered data-id attribute or position
+  var rows = $$("#phases .phase-" + stepObj.phase + " .block-row");
+  if (!rows.length) rows = $$("#phases .block-row"); // fallback
+  var row = rows[stepObj.idx];
+  if (row) { row.classList.add("debug-current"); row.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+}
+
+function debugShowPanel(stepObj) {
+  var panel = $("#debugPanel");
+  if (!panel) return;
+  if (!stepObj) { panel.classList.add("hidden"); return; }
+  panel.classList.remove("hidden");
+  var spec = stepObj.block ? specFor(stepObj.block.type) : null;
+  var name = (spec && spec.label) || prettyType(stepObj.block && stepObj.block.type) || "—";
+  var info = (stepObj.cursor + 1) + " / " + dbg.steps.length + " · " + stepObj.phase;
+  var nameEl = $("#debugBlockName");
+  var infoEl = $("#debugStepInfo");
+  if (nameEl) nameEl.textContent = name;
+  if (infoEl) infoEl.textContent = info;
+  // render params
+  var varsEl = $("#debugVars");
+  if (varsEl) {
+    varsEl.innerHTML = "";
+    var params = (stepObj.block && stepObj.block.params) ? stepObj.block.params : {};
+    var keys = Object.keys(params);
+    if (!keys.length) {
+      var em = document.createElement("div");
+      em.className = "empty"; em.textContent = "No params"; em.style.fontSize = "11px";
+      varsEl.appendChild(em);
+    } else {
+      keys.forEach(function (k) {
+        var v = params[k];
+        var row = document.createElement("div");
+        row.className = "debug-var-row";
+        var kEl = document.createElement("span"); kEl.className = "debug-var-key"; kEl.textContent = k;
+        var vEl = document.createElement("span"); vEl.className = "debug-var-val";
+        vEl.textContent = v == null ? "null" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+        row.appendChild(kEl); row.appendChild(vEl);
+        varsEl.appendChild(row);
+      });
+    }
+  }
+}
+
+function debugStop() {
+  dbg.active = false; dbg.steps = []; dbg.cursor = -1;
+  $$("#phases .block-row").forEach(function (r) { r.classList.remove("debug-current"); });
+  var panel = $("#debugPanel"); if (panel) panel.classList.add("hidden");
+  var btnStep = $("#btnDebugStep"); if (btnStep) btnStep.style.display = "none";
+  var btnDebug = $("#btnDebug"); if (btnDebug) btnDebug.classList.remove("active");
+  toast("Debugger stopped");
+}
+
+async function debugStep() {
+  if (!dbg.active) return;
+  dbg.cursor++;
+  if (dbg.cursor >= dbg.steps.length) { debugStop(); toast("Debug complete ✓", "ok"); return; }
+  var s = dbg.steps[dbg.cursor];
+  s.cursor = dbg.cursor;
+  debugHighlight(s);
+  debugShowPanel(s);
+  // Run this block in isolation
+  if (s.block) {
+    var res = await apiQ("run_single_block", s.block);
+    var ok = res && res.ok !== false;
+    var reasonEl = $("#debugVars");
+    if (reasonEl && !ok) {
+      var errEl = document.createElement("div");
+      errEl.style.cssText = "color:var(--danger);font-size:11px;margin-top:4px;";
+      errEl.textContent = "⚠ " + ((res && res.reason) || "failed");
+      reasonEl.appendChild(errEl);
+    }
+  }
+}
+
+function debugStart() {
+  if (dbg.active) { debugStop(); return; }
+  dbg.steps = debugBuildSteps();
+  if (!dbg.steps.length) { toast("No blocks to debug", "warn"); return; }
+  dbg.active = true;
+  dbg.cursor = -1;
+  var btnDebug = $("#btnDebug"); if (btnDebug) btnDebug.classList.add("active");
+  var btnStep = $("#btnDebugStep"); if (btnStep) btnStep.style.display = "";
+  toast("Debugger started — click Step ▶ to advance");
+  showScreen("builder");
+}
+
+/* ==========================================================================
+   20c. RUN STATISTICS
+   ========================================================================== */
+async function renderRunStats() {
+  var list = $("#statsList"); if (!list) return;
+  list.innerHTML = "<div class=\"empty\">Loading...</div>";
+  var data = await apiQ("get_run_stats");
+  if (!data) { list.innerHTML = "<div class=\"empty\">Not available</div>"; return; }
+  var rows = [
+    { name: "Total runs", ok: data.runs > 0, detail: data.runs + " run" + (data.runs !== 1 ? "s" : "") },
+    { name: "Errors", ok: data.errors === 0, detail: data.errors + " error" + (data.errors !== 1 ? "s" : "") },
+    { name: "Avg duration", ok: true, detail: data.avg_s + " s" },
+    { name: "Last error", ok: !data.last_error, detail: data.last_error || "none" }
+  ];
+  list.innerHTML = "";
+  rows.forEach(function (r) {
+    var row = document.createElement("div"); row.className = "health-row";
+    var dot = document.createElement("span"); dot.className = r.ok ? "dot dot-on" : "dot dot-off";
+    var nm = document.createElement("span"); nm.className = "health-name"; nm.textContent = r.name;
+    var dt = document.createElement("span"); dt.className = "health-detail"; dt.textContent = r.detail;
+    row.appendChild(dot); row.appendChild(nm); row.appendChild(dt);
+    list.appendChild(row);
+  });
+}
+
+/* ==========================================================================
    20. STATIC WIRING (runs as soon as the document is parsed)
    ========================================================================== */
 function wireStatic() {
@@ -4735,7 +6488,19 @@ function wireStatic() {
     $("#setRecordMove").checked = $("#optRecordMove").checked;
     refreshPreview();
   });
+  /* change, not input: these are pasted links, and a setting write per
+     keystroke would hit the disk for every character. */
+  [["#setRobloxShare", "roblox_share_link"],
+   ["#setRobloxPlace", "roblox_place_id"], ["#setRobloxCode", "roblox_link_code"]]
+    .forEach(function (pair) {
+      var node = $(pair[0]);
+      if (!node) return;
+      node.addEventListener("change", function () {
+        setSetting(pair[1], node.value.trim());
+      });
+    });
   $("#optMinGap").addEventListener("input", function () {
+    setSetting("record_min_gap_ms", recOptions().minGap);
     debounce("previewTimer", 350, refreshPreview);
   });
   $("#btnPreviewAll").addEventListener("click", function () {
@@ -4761,7 +6526,7 @@ function wireStatic() {
 
   /* --- nested blocks editor ----------------------------------------- */
   wireDropTarget($("#blocksEditList"), blocksEditCtx);
-  $("#btnBlocksEditDone").addEventListener("click", closeBlocksEditor);
+  $("#btnBlocksEditDone").addEventListener("click", finishBlocksEditor);
   $("#btnBlocksEditClose").addEventListener("click", closeBlocksEditor);
   $("#btnBlocksEditClear").addEventListener("click", clearBlocksEditor);
 
@@ -4806,6 +6571,7 @@ function wireStatic() {
   $("#btnBigViewReshoot").addEventListener("click", recaptureInBigView);
   $("#btnBigViewSave").addEventListener("click", function () { saveCrop(false); });
   $("#btnBigViewVariant").addEventListener("click", function () { saveCrop(true); });
+  $("#btnBigViewMap").addEventListener("click", function () { saveMapCrop(); });
   /* Two boxes, one name: the large view covers the side panel, so it carries
      its own copy of the field and mirrors it rather than owning a second
      truth. saveCrop only ever reads #imgName. */
@@ -4820,10 +6586,19 @@ function wireStatic() {
   $("#btnCaptureTarget").addEventListener("click", captureAndCrop);
   $("#btnSaveNew").addEventListener("click", function () { saveCrop(false); });
   $("#btnSaveVariant").addEventListener("click", function () { saveCrop(true); });
-  $("#btnRefreshTemplates").addEventListener("click", refreshTemplates);
+  $("#btnSaveMap").addEventListener("click", function () { saveMapCrop(); });
+  attachTip($("#btnSaveMap"), function () { return t("img_save_map"); },
+            function () { return t("img_save_map_tip"); });
+  $("#btnImportMap2").addEventListener("click", importMapFile);
+  $("#btnRefreshTemplates").addEventListener("click", function () {
+    refreshTemplates();
+    refreshMaps();
+  });
   $("#btnOpenAssets2").addEventListener("click", function () { apiQ("open_assets_folder"); });
+  $("#btnOpenMaps2").addEventListener("click", function () { apiQ("open_maps_folder"); });
 
   /* --- image picker -------------------------------------------------- */
+  wireGroupUI();
   $("#tplPickFilter").addEventListener("input", function () {
     tplPick.filter = $("#tplPickFilter").value.trim();
     renderTplPickGrid();
@@ -4834,6 +6609,26 @@ function wireStatic() {
   $("#btnTplPickClose").addEventListener("click", function () { closeTemplatePicker(undefined); });
 
   /* --- settings screen ---------------------------------------------- */
+  $("#btnPalettes").addEventListener("click", openPaletteManager);
+  $("#btnPaletteClose").addEventListener("click", closePaletteManager);
+  $("#btnPaletteDone").addEventListener("click", closePaletteManager);
+  $("#btnPaletteSave").addEventListener("click", savePaletteDraft);
+  $("#btnPaletteNew").addEventListener("click", function () {
+    paletteEdit = { name: "", types: [] };
+    $("#paletteName").value = "";
+    renderPaletteEditor();
+  });
+  $("#btnPaletteAll").addEventListener("click", function () {
+    paletteEdit.types = state.catalog.map(function (spec) { return spec.type; });
+    renderPaletteEditor();
+  });
+  $("#btnPaletteNone").addEventListener("click", function () {
+    paletteEdit.types = [];
+    renderPaletteEditor();
+  });
+  $("#btnPaletteImport").addEventListener("click", importPaletteFile);
+  $("#btnPaletteFolder").addEventListener("click", function () { apiQ("open_palettes_folder"); });
+
   $("#btnRefreshWindows").addEventListener("click", refreshWindows);
   $("#winSearch").addEventListener("input", renderWindows);
   $("#btnUseScreen").addEventListener("click", async function () {
@@ -4885,11 +6680,34 @@ function wireStatic() {
     var name = ($("#hookUser").value || "").trim() || "Macro Studio";
     applyWebhookResult(await api("save_webhook_settings", null, null, name));
   });
+  ["#hookTitle", "#hookDescription", "#hookColor", "#hookFooter", "#hookTimestamp"]
+    .forEach(function (sel) {
+      var node = $(sel);
+      if (node) node.addEventListener("change", saveWebhookDesign);
+    });
 
   $("#btnHealth").addEventListener("click", runHealthCheck);
   $("#btnOpenData").addEventListener("click", function () { apiQ("open_data_folder"); });
   $("#btnOpenAssets").addEventListener("click", function () { apiQ("open_assets_folder"); });
   $("#btnResetSettings").addEventListener("click", resetSettings);
+
+  /* --- block search -------------------------------------------------- */
+  var bsInp = $("#blockSearchInp");
+  if (bsInp) bsInp.addEventListener("input", applyBlockSearch);
+
+  /* --- debugger ------------------------------------------------------ */
+  var btnDebug = $("#btnDebug");
+  if (btnDebug) btnDebug.addEventListener("click", debugStart);
+  var btnDebugStep = $("#btnDebugStep");
+  if (btnDebugStep) btnDebugStep.addEventListener("click", debugStep);
+
+  /* --- run stats ----------------------------------------------------- */
+  var btnResetStats = $("#btnResetStats");
+  if (btnResetStats) btnResetStats.addEventListener("click", async function () {
+    await apiQ("reset_run_stats");
+    renderRunStats();
+    toast("Statistics reset");
+  });
 
   /* --- global keys --------------------------------------------------- */
   document.addEventListener("keydown", function (e) {
@@ -4933,7 +6751,12 @@ function wireStatic() {
     if (top.id === "bigViewModal") { closeImgLargeView(); return; }
     /* Both of these owe someone a promise; hiding the overlay behind their
        backs would leave the caller waiting for ever. */
+    if (top.id === "groupModal") { closeGroupModal(); return; }
+    if (top.id === "paletteModal") { closePaletteManager(); return; }
+    /* promptModal answers Escape itself (capture phase), so it never
+       reaches here. */
     if (top.id === "tplPickModal") { closeTemplatePicker(undefined); return; }
+    if (top.id === "winPickModal") { closeWinPicker(undefined); return; }
     top.classList.add("hidden");
   });
 }
@@ -4941,6 +6764,356 @@ function wireStatic() {
 /* ==========================================================================
    21. BOOTSTRAP
    ========================================================================== */
+/* ==========================================================================
+   20b. SAVED BLOCK GROUPS
+
+   A group is a named list of blocks that can be dropped into Setup, Loop or
+   Watch as often as needed. Inserting COPIES the blocks (with fresh ids)
+   rather than linking to them: two rows sharing an id would delete and edit
+   each other, and a group is a starting point, not a live reference.
+   ========================================================================== */
+var groupPick = { open: false, phase: null, filter: "" };
+
+function phaseLabelOf(key) {
+  var found = null;
+  state.phases.forEach(function (p) { if (p.key === key) found = p; });
+  return found ? phaseTitle(found) : String(key || "");
+}
+
+function selectionFor(phase) {
+  if (!state.selection || state.selection.phase !== phase) return [];
+  return state.selection.ids || [];
+}
+
+function isSelected(phase, id) {
+  return selectionFor(phase).indexOf(id) >= 0;
+}
+
+function toggleSelected(phase, id) {
+  /* Ticking in a second phase drops the first one's ticks: a group is one
+     ordered list, and blocks from two phases have no single order. */
+  if (!state.selection || state.selection.phase !== phase) {
+    state.selection = { phase: phase, ids: [] };
+  }
+  var ids = state.selection.ids;
+  var at = ids.indexOf(id);
+  if (at >= 0) ids.splice(at, 1);
+  else ids.push(id);
+  if (!ids.length) state.selection = { phase: null, ids: [] };
+  renderPhases();
+}
+
+function clearSelection() {
+  state.selection = { phase: null, ids: [] };
+  renderPhases();
+}
+
+/* Ticked blocks in PHASE order, not in the order they were clicked -- the
+   group has to run the way it reads on screen. */
+function selectedBlocks(phase) {
+  var ids = selectionFor(phase);
+  if (!ids.length) return [];
+  return phaseArray(phase).filter(function (b) { return ids.indexOf(b.id) >= 0; });
+}
+
+async function saveGroupFrom(phase, label) {
+  var ticked = selectedBlocks(phase);
+  var blocks = ticked.length ? ticked : phaseArray(phase).slice();
+  if (!blocks.length) { toast(t("grp_nothing"), "err"); return; }
+
+  var name = await askPrompt(
+    t("grp_save_title"),
+    ticked.length ? tf("grp_save_sel", ticked.length, label)
+                  : tf("grp_save_all", blocks.length, label),
+    "");
+  if (name === null) return;
+  name = String(name).trim();
+  if (!name) { toast(t("grp_need_name"), "err"); return; }
+
+  var clash = (state.groups || []).some(function (g) { return g.name === name; });
+  if (clash) {
+    var yes = await askConfirm(tf("grp_overwrite", name), t("grp_overwrite_body"));
+    if (!yes) return;
+  }
+
+  var result = await api("save_block_group", name,
+                         JSON.parse(JSON.stringify(blocks)));
+  if (!result || !result.ok) {
+    toast(t("grp_save_failed")
+          + (result && result.reason ? ": " + result.reason : ""), "err");
+    return;
+  }
+  state.groups = result.groups || [];
+  clearSelection();
+  toast(tf("grp_saved", result.name, blocks.length), "ok");
+}
+
+function closeGroupModal() {
+  groupPick.open = false;
+  var overlay = $("#groupModal");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+async function openGroupModal(phase) {
+  var overlay = $("#groupModal");
+  if (!overlay) return;
+  groupPick.open = true;
+  groupPick.phase = phase;
+  groupPick.filter = "";
+  var filter = $("#grpFilter");
+  if (filter) filter.value = "";
+  overlay.classList.remove("hidden");
+  /* Painted from what is already known, then repainted from disk: a group
+     saved in another window (or deleted by hand) shows up without a reload,
+     and the grid never appears empty for the length of a round trip. */
+  renderGroupList();
+  var fresh = await api("list_block_groups");
+  if (Array.isArray(fresh) && groupPick.open) {
+    state.groups = fresh;
+    renderGroupList();
+  }
+}
+
+function renderGroupList() {
+  var host = $("#grpList");
+  if (!host) return;
+  var target = $("#grpTarget");
+  if (target) target.textContent = phaseLabelOf(groupPick.phase);
+
+  var needle = String(groupPick.filter || "").trim().toLowerCase();
+  var shown = (state.groups || []).filter(function (g) {
+    return !needle || String(g.name).toLowerCase().indexOf(needle) >= 0;
+  });
+
+  host.innerHTML = "";
+  if (!shown.length) {
+    /* "nothing saved" and "nothing matches" are different problems, and only
+       one of them is fixed by saving a group. */
+    host.appendChild(el("div", { class: "empty",
+      text: (state.groups || []).length ? t("grp_no_match") : t("grp_empty") }));
+    return;
+  }
+  shown.forEach(function (g) { host.appendChild(groupRow(g)); });
+}
+
+function groupRow(g) {
+  var count = toInt(g.count, 0);
+  var row = el("div", { class: "grp-row" }, [
+    el("span", { class: "grp-name", text: g.name }),
+    el("span", { class: "grp-count",
+                 text: count + " " + t(count === 1 ? "block_1" : "block_n") }),
+    el("span", { class: "flex-spacer" })
+  ]);
+
+  var insertBtn = el("button", { class: "btn btn-sm btn-primary", text: t("grp_insert") });
+  insertBtn.addEventListener("click", function () { insertGroup(g.name); });
+
+  var renameBtn = el("button", { class: "btn btn-sm", text: t("grp_rename") });
+  renameBtn.addEventListener("click", async function () {
+    var name = await askPrompt(t("grp_rename"), g.name, g.name);
+    if (name === null) return;
+    name = String(name).trim();
+    if (!name || name === g.name) return;
+    var result = await api("rename_block_group", g.name, name);
+    if (!result || !result.ok) { toast(t("grp_save_failed"), "err"); return; }
+    state.groups = result.groups || [];
+    renderGroupList();
+  });
+
+  var delBtn = el("button", { class: "iconbtn danger", title: t("btn_delete") },
+                  [icon("i-trash", "ic-xs")]);
+  delBtn.addEventListener("click", async function () {
+    var yes = await askConfirm(tf("grp_delete_q", g.name), t("grp_delete_body"));
+    if (!yes) return;
+    var result = await api("delete_block_group", g.name);
+    if (result) state.groups = result.groups || [];
+    renderGroupList();
+  });
+
+  row.appendChild(insertBtn);
+  row.appendChild(renameBtn);
+  row.appendChild(delBtn);
+  return row;
+}
+
+async function insertGroup(name) {
+  var phase = groupPick.phase;
+  if (!isPhaseKey(phase)) { closeGroupModal(); return; }
+  var result = await api("load_block_group", name);
+  if (!result || !result.ok || !Array.isArray(result.blocks) || !result.blocks.length) {
+    toast(t("grp_load_failed"), "err");
+    return;
+  }
+  /* reid: the same group may sit in Setup and in Loop at once. */
+  var copies = normalizeList(result.blocks, true);
+  if (!copies.length) { toast(t("grp_load_failed"), "err"); return; }
+  var list = phaseArray(phase);
+  copies.forEach(function (b) { list.push(b); });
+  closeGroupModal();
+  renderPhases();
+  markDirty();
+  toast(tf("grp_inserted", copies.length, phaseLabelOf(phase)), "ok");
+}
+
+/* A one-line text question. Same shape as askConfirm: resolves with the text,
+   or null when the user backed out -- "" has to stay distinguishable from
+   "cancelled", or an empty name would look like a cancel. */
+function askPrompt(title, text, value) {
+  return new Promise(function (resolve) {
+    var overlay = $("#promptModal");
+    if (!overlay) { resolve(null); return; }
+    $("#promptTitle").textContent = title || t("ask_title");
+    $("#promptText").textContent = text || "";
+    var input = $("#promptInput");
+    input.value = value == null ? "" : String(value);
+    overlay.classList.remove("hidden");
+
+    function done(result) {
+      overlay.classList.add("hidden");
+      $("#btnPromptOk").removeEventListener("click", ok);
+      $("#btnPromptCancel").removeEventListener("click", cancel);
+      document.removeEventListener("keydown", key, true);
+      resolve(result);
+    }
+    function ok() { done(input.value); }
+    function cancel() { done(null); }
+    /* Capture phase, like askConfirm: this is the topmost thing on screen, so
+       Escape must answer it instead of closing the modal underneath. */
+    function key(e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); }
+      else if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); ok(); }
+    }
+    $("#btnPromptOk").addEventListener("click", ok);
+    $("#btnPromptCancel").addEventListener("click", cancel);
+    document.addEventListener("keydown", key, true);
+    setTimeout(function () { input.focus(); input.select(); }, 20);
+  });
+}
+
+function wireGroupUI() {
+  var filter = $("#grpFilter");
+  if (filter) {
+    filter.addEventListener("input", function () {
+      groupPick.filter = filter.value;
+      renderGroupList();
+    });
+  }
+  var folder = $("#btnGrpFolder");
+  if (folder) folder.addEventListener("click", function () { api("open_groups_folder"); });
+  ["#btnGrpCancel", "#btnGrpClose"].forEach(function (sel) {
+    var node = $(sel);
+    if (node) node.addEventListener("click", function () { closeGroupModal(); });
+  });
+}
+
+/* =====================================================================
+   User block palettes. A palette is intentionally only a named list of
+   catalog type ids: it never contains macros, images, recordings or secrets,
+   which makes the exported JSON safe to share.
+   ===================================================================== */
+var paletteEdit = { name: "", types: [] };
+
+function closePaletteManager() {
+  var overlay = $("#paletteModal");
+  if (overlay) overlay.classList.add("hidden");
+}
+
+function renderPaletteEditor() {
+  var host = $("#paletteEditorGrid");
+  if (!host) return;
+  host.innerHTML = "";
+  var selected = new Set(paletteEdit.types || []);
+  state.catalog.forEach(function (spec) {
+    var input = el("input", { type: "checkbox" });
+    input.checked = selected.has(spec.type);
+    input.addEventListener("change", function () {
+      var next = new Set(paletteEdit.types || []);
+      if (input.checked) next.add(spec.type); else next.delete(spec.type);
+      paletteEdit.types = Array.from(next);
+    });
+    host.appendChild(el("label", { class: "palette-pick" }, [
+      input,
+      el("span", { class: "chip-dot", style: "--chip-color:" + colorOf(spec.color) }),
+      el("span", { text: spec.label || prettyType(spec.type) })
+    ]));
+  });
+}
+
+function renderSavedPalettes() {
+  var host = $("#paletteSavedList");
+  if (!host) return;
+  host.innerHTML = "";
+  if (!(state.palettes || []).length) {
+    host.appendChild(el("div", { class: "empty", text: t("palette_empty") }));
+    return;
+  }
+  state.palettes.forEach(function (palette) {
+    var row = el("div", { class: "palette-saved-row" }, [
+      el("span", { class: "palette-saved-name", text: palette.name }),
+      el("span", { class: "palette-saved-count", text: String((palette.types || []).length) }),
+      el("span", { class: "flex-spacer" })
+    ]);
+    var use = el("button", { class: "btn btn-xs" + (state.activePalette === palette.name ? " active" : ""), text: t("palette_use") });
+    use.addEventListener("click", function () {
+      state.activePalette = state.activePalette === palette.name ? "" : palette.name;
+      renderPalette();
+      renderSavedPalettes();
+    });
+    var edit = el("button", { class: "btn btn-xs", text: t("palette_edit") });
+    edit.addEventListener("click", function () {
+      paletteEdit = { name: palette.name, types: (palette.types || []).slice() };
+      $("#paletteName").value = paletteEdit.name;
+      renderPaletteEditor();
+    });
+    var out = el("button", { class: "btn btn-xs", text: t("palette_export") });
+    out.addEventListener("click", async function () {
+      var result = await api("export_block_palette", palette.name);
+      if (result && result.ok) toast(t("palette_exported"), "ok");
+    });
+    var del = el("button", { class: "btn btn-xs btn-ghost-danger", text: t("palette_delete") });
+    del.addEventListener("click", async function () {
+      if (!await askConfirm(t("palette_delete_q"), t("palette_delete_body"))) return;
+      var result = await api("delete_block_palette", palette.name);
+      if (!result || result.ok === false) return;
+      state.palettes = result.palettes || [];
+      if (state.activePalette === palette.name) { state.activePalette = ""; renderPalette(); }
+      renderSavedPalettes();
+    });
+    row.appendChild(use); row.appendChild(edit); row.appendChild(out); row.appendChild(del);
+    host.appendChild(row);
+  });
+}
+
+function openPaletteManager() {
+  paletteEdit = { name: "", types: state.catalog.map(function (spec) { return spec.type; }) };
+  $("#paletteName").value = "";
+  renderPaletteEditor();
+  renderSavedPalettes();
+  $("#paletteModal").classList.remove("hidden");
+}
+
+async function savePaletteDraft() {
+  var name = ($("#paletteName").value || "").trim();
+  if (!name) { toast(t("palette_need_name"), "err"); return; }
+  if (!(paletteEdit.types || []).length) { toast(t("palette_need_blocks"), "err"); return; }
+  var result = await api("save_block_palette", name, paletteEdit.types);
+  if (!result || result.ok === false) { toast(t("palette_save_failed"), "err"); return; }
+  state.palettes = result.palettes || [];
+  paletteEdit.name = result.palette.name;
+  state.activePalette = result.palette.name;
+  renderPalette(); renderSavedPalettes();
+  toast(t("palette_saved_toast"), "ok");
+}
+
+async function importPaletteFile() {
+  var result = await api("import_block_palette");
+  if (!result || result.reason === "cancelled") return;
+  if (result.ok === false) { toast(t("palette_import_failed"), "err"); return; }
+  state.palettes = result.palettes || [];
+  renderSavedPalettes();
+  toast(t("palette_imported"), "ok");
+}
+
 async function init() {
   if (state.booted) return;
   state.booted = true;
@@ -4958,6 +7131,8 @@ async function init() {
   state.catalog.forEach(function (spec) { state.byType[spec.type] = spec; });
   if (Array.isArray(boot.phases) && boot.phases.length) state.phases = boot.phases;
   state.settings = boot.settings || {};
+  state.groups = Array.isArray(boot.groups) ? boot.groups : [];
+  state.palettes = Array.isArray(boot.palettes) ? boot.palettes : [];
   state.macros = Array.isArray(boot.macros) ? boot.macros : [];
   state.recordings = Array.isArray(boot.recordings) ? boot.recordings : [];
 
@@ -4982,6 +7157,7 @@ async function init() {
   refreshTargetInfo();
   refreshWindows();
   refreshTemplates();
+  refreshMaps();
   refreshWebhook();
 
   await pollStatus();
@@ -4993,4 +7169,3 @@ wireStatic();
 window.addEventListener("pywebviewready", init);
 /* If the bridge was already up before this script ran, the event never fires. */
 if (bridgeReady()) init();
-

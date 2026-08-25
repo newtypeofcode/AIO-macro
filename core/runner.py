@@ -6,6 +6,7 @@ choke point (`_checkpoint`) called before every block and inside every wait,
 so Stop lands during a 30-second wait rather than only after it.
 """
 import random
+import re
 import threading
 import time
 
@@ -18,8 +19,72 @@ from . import templates as tpl
 from . import timing
 from . import vision
 from . import window as wm
+from .i18n import tr
 from .keyboard import Keyboard
 from .mouse import Mouse
+
+
+_NUMERIC_COMPARE = ("greater", "greater or equal", "less", "less or equal",
+                    ">", ">=", "<", "<=")
+
+
+def _as_number(text):
+    """First number in an OCR string, or None.
+
+    OCR hands back things like "Wave 12", "$1,250" or "1 250", so digits are
+    picked out of the noise and space/apostrophe thousands separators are
+    dropped. A comma is treated as a thousands separator only when exactly
+    three digits follow it, otherwise as a decimal point ("1,5").
+    """
+    s = str(text or "").strip().lower()
+    match = re.search(r"-?\d[\d\s.,']*", s)
+    if not match:
+        return None
+    body = match.group(0).replace(" ", "").replace("'", "").rstrip(".,")
+    if "," in body and "." in body:
+        body = body.replace(",", "")
+    elif "," in body:
+        head, _, tail = body.rpartition(",")
+        body = head + ("" if len(tail) == 3 else ".") + tail
+    try:
+        value = float(body)
+    except ValueError:
+        return None
+    suffix = s[match.end():match.end() + 1]
+    value *= {"k": 1e3, "m": 1e6, "b": 1e9}.get(suffix, 1.0)
+    return value
+
+
+def _compare_text(text, op, wanted) -> bool:
+    """Read Text's comparison. Unknown operators pass, so a macro saved by a
+    newer build cannot fail here for a reason nobody can see."""
+    op = str(op or "").strip().lower().replace("_", " ")
+    left = str(text or "").strip()
+    right = str(wanted or "").strip()
+    if op == "contains":
+        return right.lower() in left.lower()
+    if op == "not contains":
+        return right.lower() not in left.lower()
+
+    left_n, right_n = _as_number(left), _as_number(right)
+    numeric = left_n is not None and right_n is not None
+    if op in ("equals", "=", "=="):
+        # Numbers when both sides are numbers -- "12" and "12.0" are equal --
+        # otherwise a case-insensitive text match.
+        return left_n == right_n if numeric else left.lower() == right.lower()
+    if op in ("not equals", "!=", "<>"):
+        return left_n != right_n if numeric else left.lower() != right.lower()
+    if not numeric:
+        return False
+    if op in ("greater", ">"):
+        return left_n > right_n
+    if op in ("greater or equal", ">="):
+        return left_n >= right_n
+    if op in ("less", "<"):
+        return left_n < right_n
+    if op in ("less or equal", "<="):
+        return left_n <= right_n
+    return True
 
 
 class _SkipRest(Exception):
@@ -105,6 +170,19 @@ class MacroRunner:
         # Tracks whether the target was ever alive this run, so a target that
         # dies mid-run is distinguishable from one that was never there.
         self._target_was_alive = False
+        # Run clock and counters, read by the status bar and by the webhook
+        # report. _total_passes survives a "restart macro", which the per-run
+        # pass counter deliberately does not.
+        self._started_at = 0.0
+        self._ended_at = 0.0
+        self._total_passes = 0
+        # Watch phase
+        self._watch_blocks = []
+        self._watch_interval = 0.4
+        self._watch_after = "continue"
+        self._watch_next = 0.0
+        self._watch_fires = 0
+        self._in_watch = False
 
     # ------------------------------------------------------------ lifecycle
 
@@ -124,6 +202,13 @@ class MacroRunner:
         self._hwnd = int(hwnd or 0)
         self._coord_space = coord_space
         self._loop_index = 0
+        self._started_at = time.time()
+        self._ended_at = 0.0
+        self._total_passes = 0
+        self._watch_blocks = []
+        self._watch_next = 0.0
+        self._watch_fires = 0
+        self._in_watch = False
         self._target_was_alive = bool(
             coord_space == "window" and self._hwnd and wm.is_window(self._hwnd))
         self._fallback_depth = 0
@@ -154,6 +239,19 @@ class MacroRunner:
     def toggle_pause(self) -> dict:
         return self.resume() if self.is_paused() else self.pause()
 
+    def run_stats(self) -> dict:
+        """How long the run has been going and how much it has done.
+
+        Kept live while running and frozen afterwards, so the control bar can
+        keep showing the last run's duration instead of snapping back to zero.
+        """
+        if not self._started_at:
+            return {"elapsed_s": 0.0, "passes": 0, "watch_fires": 0}
+        end = time.time() if self.is_running() else (self._ended_at or time.time())
+        return {"elapsed_s": max(0.0, end - self._started_at),
+                "passes": self._total_passes,
+                "watch_fires": self._watch_fires}
+
     # ------------------------------------------------------------- plumbing
 
     def _checkpoint(self) -> bool:
@@ -163,7 +261,7 @@ class MacroRunner:
         if self._stop_event.is_set():
             if not self._stop_logged:
                 self._stop_logged = True
-                self._log("Stopped.")
+                self._log(tr("Stopped."))
             return True
         return False
 
@@ -214,8 +312,8 @@ class MacroRunner:
         if not self._target_was_alive:
             return False
         self._target_was_alive = False
-        self._log("Target window disappeared -- stopping so clicks cannot "
-                  "land on whatever is behind it.")
+        self._log(tr("Target window disappeared -- stopping so clicks cannot "
+                     "land on whatever is behind it."))
         self._stop_event.set()
         return False
 
@@ -238,12 +336,13 @@ class MacroRunner:
         try:
             self._run(macro, loop_forever, loop_count)
         except Exception as exc:
-            self._log("Runner error: %s" % exc)
+            self._log(tr("Runner error: %s") % exc)
         finally:
+            self._ended_at = time.time()
             self._release_all()
             capture.close_mss()
             self._set_status(running=False, paused=False, action="Idle")
-            self._log("Run finished.")
+            self._log(tr("Run finished."))
 
     def _run(self, macro: dict, loop_forever: bool, loop_count: int) -> None:
         """Outer shell: honours a "restart macro" fallback by starting the
@@ -258,10 +357,10 @@ class MacroRunner:
             except _RestartRun:
                 restarts += 1
                 if restarts > _MAX_RUN_RESTARTS:
-                    self._log("Restarted the macro %d times -- giving up."
+                    self._log(tr("Restarted the macro %d times -- giving up.")
                               % _MAX_RUN_RESTARTS)
                     return
-                self._log("Restarting the whole macro (%d)." % restarts)
+                self._log(tr("Restarting the whole macro (%d).") % restarts)
                 self._release_all()
                 if self._checkpoint():
                     return
@@ -273,24 +372,45 @@ class MacroRunner:
         # so renaming a phase cannot leave one side executing nothing.
         once_key = blockmod.PHASE_ONCE
         repeat_key = blockmod.PHASE_REPEAT
+        watch_key = blockmod.PHASE_WATCH
         setup = blockmod.normalize_list(phases.get(once_key))
         loop = blockmod.normalize_list(phases.get(repeat_key))
+        self._load_watch(blockmod.normalize_list(phases.get(watch_key)))
 
-        if not setup and not loop:
-            self._log("Nothing to run -- both phases are empty.")
+        if not setup and not loop and not self._watch_blocks:
+            self._log(tr("Nothing to run -- every phase is empty."))
             return
 
-        self._set_status(running=True, paused=False, action="Starting", loop=0)
-        self._log("Run started (%d %s, %d %s blocks)."
-                  % (len(setup), once_key, len(loop), repeat_key))
+        self._set_status(running=True, paused=False, action=tr("Starting"),
+                         loop=0)
+        # The phase LABELS, not the identifiers: the sentence around them is
+        # translated, and "setup"/"loop" are storage keys that happen to be
+        # English words -- the next two status lines already use the labels.
+        self._log(tr("Run started (%d %s, %d %s blocks).")
+                  % (len(setup), blockmod.PHASE_LABELS[once_key],
+                     len(loop), blockmod.PHASE_LABELS[repeat_key]))
+        if self._watch_blocks:
+            self._log(tr("Watch: %d block(s), checked between steps every %d ms.")
+                      % (len(self._watch_blocks), int(self._watch_interval * 1000)))
 
         if self._hwnd and wm.is_window(self._hwnd):
             title = wm.get_window_title(self._hwnd)
-            self._log("Target: %s" % (title or self._hwnd))
-            wm.activate_window(self._hwnd)
-            time.sleep(0.25)
+            self._log(tr("Target: %s") % (title or self._hwnd))
+            # Deliberately NOT activating the target here. Stealing focus on
+            # every run is the user's decision, not the runner's: put a Focus
+            # Target block at the top of Setup when you want it. The implicit
+            # activation also dragged a maximized window back to its restored
+            # size and yanked the foreground away from whatever the user had
+            # chosen -- including in whole-screen mode after an old target was
+            # still remembered.
         elif self._coord_space == "window":
-            self._log("Target window is gone -- using screen coordinates.")
+            self._log(tr("Target window is gone -- using screen coordinates."))
+
+        if not setup and not loop:
+            # The Watch phase on its own IS the macro: there is nothing to
+            # interrupt, so it is polled directly until Stop.
+            self._watch_idle_loop(watch_key)
+            return
 
         if setup:
             self._set_status(action=blockmod.PHASE_LABELS[once_key])
@@ -306,12 +426,121 @@ class MacroRunner:
         while not self._stop_event.is_set():
             passes += 1
             self._loop_index = passes
+            self._total_passes += 1
             self._set_status(action=blockmod.PHASE_LABELS[repeat_key], loop=passes)
             if self._run_phase_once(loop, repeat_key) == "stop":
                 return
             if not loop_forever and passes >= max(1, loop_count):
-                self._log("Reached %d loop pass(es)." % passes)
+                self._log(tr("Reached %d loop pass(es).") % passes)
                 return
+
+    def _load_watch(self, blocks) -> None:
+        """Read the Watch phase and its settings once, at the start of a run."""
+        from . import settings as settingsmod
+
+        try:
+            cfg = settingsmod.load()
+        except Exception:
+            cfg = {}
+        try:
+            interval = float(cfg.get("watch_interval_ms", 400)) / 1000.0
+        except (TypeError, ValueError):
+            interval = 0.4
+        # Floored: a 0 ms watch would run its check between every single block
+        # with no pause at all and drown the run in polling.
+        self._watch_interval = max(0.05, interval)
+        self._watch_after = (str(cfg.get("watch_after") or "continue")
+                             .strip().lower().replace(" ", "_"))
+        enabled = bool(cfg.get("watch_enabled", True))
+        self._watch_blocks = list(blocks) if (enabled and blocks) else []
+        self._watch_next = 0.0
+        self._in_watch = False
+
+    def _run_watch_pass(self) -> bool:
+        """One pass of the Watch phase. True when the event fired.
+
+        "Fired" is defined by the machinery the Vision blocks already have:
+        the block that CHECKS for the event carries On fail = "skip rest", so
+        a pass where nothing was there abandons itself and counts as quiet.
+        A pass that reaches its last block did something.
+        """
+        watch_key = blockmod.PHASE_WATCH
+        try:
+            self._run_blocks(self._watch_blocks, watch_key,
+                             label=blockmod.PHASE_LABELS[watch_key])
+            return True
+        except _SkipRest:
+            return False
+        except _RestartPhase:
+            # A block inside Watch asking for a restart IS the event.
+            return True
+
+    def _maybe_watch(self) -> None:
+        """Run the Watch phase if it is due.
+
+        Called between blocks and never inside one: interrupting a block
+        halfway would leave a mouse button held or a key stuck down.
+
+        A quiet pass leaves no trace at all -- log and status writes are
+        collected and thrown away, because a check running every 400 ms would
+        otherwise bury the run's own journal. They are replayed when the watch
+        actually fires.
+        """
+        if self._in_watch or not self._watch_blocks:
+            return
+        if time.time() < self._watch_next:
+            return
+
+        outer_phase = self._phase_key
+        real_log, real_status = self._log, self._set_status
+        collected = []
+        self._in_watch = True
+        self._log = collected.append
+        self._set_status = lambda **kw: None
+        try:
+            fired = self._run_watch_pass()
+        finally:
+            self._log, self._set_status = real_log, real_status
+            self._in_watch = False
+            self._phase_key = outer_phase
+            # Measured from the END of the pass, so a slow check does not
+            # immediately become due again.
+            self._watch_next = time.time() + self._watch_interval
+
+        if not fired:
+            return
+        self._watch_fires += 1
+        self._log(tr("Watch fired (%d).") % self._watch_fires)
+        for line in collected:
+            self._log(line)
+
+        mode = self._watch_after
+        if mode == "restart_macro":
+            self._log(tr("   watch done -- restarting the whole macro"))
+            raise _RestartRun()
+        if mode in ("restart_loop", "run_loop", "restart_phase"):
+            if outer_phase == blockmod.PHASE_REPEAT:
+                self._log(tr("   watch done -- restarting the Loop"))
+                raise _RestartPhase()
+            # Fired during Setup: "run the loop" means stop preparing.
+            self._log(tr("   watch done -- moving on to the Loop"))
+            raise _SkipRest()
+        self._log(tr("   watch done -- carrying on"))
+
+    def _watch_idle_loop(self, watch_key: str) -> None:
+        """No Setup and no Loop: just watch until Stop."""
+        self._log(tr("Only the Watch phase has blocks -- monitoring until Stop."))
+        self._phase_key = blockmod.PHASE_REPEAT
+        self._set_status(action=blockmod.PHASE_LABELS[watch_key])
+        while not self._stop_event.is_set():
+            if self._checkpoint():
+                return
+            try:
+                self._maybe_watch()
+            except (_RestartPhase, _SkipRest):
+                # "restart loop" with no Loop to restart: keep watching.
+                continue
+            time.sleep(0.05)
 
     def _run_phase_once(self, block_list, phase_key: str) -> str:
         """Run one pass of a phase, honouring a "restart phase" fallback.
@@ -333,12 +562,12 @@ class MacroRunner:
             except _RestartPhase:
                 restarts += 1
                 if restarts > _MAX_PHASE_RESTARTS:
-                    self._log("Restarted %s %d times without getting through -- "
-                              "giving up on this pass."
+                    self._log(tr("Restarted %s %d times without getting "
+                                 "through -- giving up on this pass.")
                               % (blockmod.PHASE_LABELS.get(phase_key, phase_key),
                                  _MAX_PHASE_RESTARTS))
                     return "done"
-                self._log("   restarting %s from the top (%d)"
+                self._log(tr("   restarting %s from the top (%d)")
                           % (blockmod.PHASE_LABELS.get(phase_key, phase_key), restarts))
                 if self._checkpoint():
                     return "stop"
@@ -365,11 +594,12 @@ class MacroRunner:
             if guard > 100000:
                 # Truncating the phase and continuing meant a runaway nested
                 # loop simply restarted next pass, forever. Stop the run.
-                self._log("Loop guard tripped -- stopping the run.")
+                self._log(tr("Loop guard tripped -- stopping the run."))
                 self._stop_event.set()
                 raise _StopRun()
             if self._checkpoint():
                 return
+            self._maybe_watch()
 
             block = block_list[index]
             btype = block["type"]
@@ -380,11 +610,11 @@ class MacroRunner:
             is_flow = btype in ("loop_start", "loop_end")
             if not is_flow:
                 if not block.get("enabled", True):
-                    self._log("   - skipped (disabled): %s" % blockmod.summarise(block))
+                    self._log(tr("   - skipped (disabled): %s") % blockmod.summarise(block))
                     index += 1
                     continue
                 if block.get("once") and is_repeating and self._loop_index > 1:
-                    self._log("   - skipped (ONCE, already ran): %s"
+                    self._log(tr("   - skipped (ONCE, already ran): %s")
                               % blockmod.summarise(block))
                     index += 1
                     continue
@@ -394,7 +624,7 @@ class MacroRunner:
                     count = max(1, int(block["params"].get("count", 1) or 1))
                 except (TypeError, ValueError):
                     # One malformed count must cost one block, not the run.
-                    self._log("Loop Start has a bad count -- using 1.")
+                    self._log(tr("Loop Start has a bad count -- using 1."))
                     count = 1
                 stack.append([index, count - 1])
                 index += 1
@@ -418,19 +648,22 @@ class MacroRunner:
             # journal is a readable trace of what the macro actually did
             # rather than only what went wrong.
             started = time.time()
+            # No tr() on the template -- it has no words. Both halves arrive
+            # translated already: the phase label from PHASE_LABELS (or the
+            # caller's, for a fallback) and the summary from summarise().
             self._log("%s #%d  %s" % (phase_label, step, summary))
             try:
                 self._execute(block)
             except (_SkipRest, _StopRun, _RestartPhase, _RestartRun):
                 raise
             except Exception as exc:
-                self._log("   ! %s failed: %s" % (btype, exc))
+                self._log(tr("   ! %s failed: %s") % (btype, exc))
             else:
                 elapsed = time.time() - started
                 # Only worth reporting when the block actually took time --
                 # a "took 0ms" line under every instant click is noise.
                 if elapsed >= 0.4:
-                    self._log("   took %.1fs" % elapsed)
+                    self._log(tr("   took %.1fs") % elapsed)
             index += 1
 
     # ------------------------------------------------------------ dispatch
@@ -438,7 +671,7 @@ class MacroRunner:
     def _execute(self, block: dict) -> None:
         handler = getattr(self, "_do_" + block["type"], None)
         if handler is None:
-            self._log("No handler for block type %s" % block["type"])
+            self._log(tr("No handler for block type %s") % block["type"])
             return
         handler(block["params"])
 
@@ -449,24 +682,27 @@ class MacroRunner:
         saved before the wording changed keeps working.
         """
         mode = str(params.get("on_fail") or "continue").strip().lower().replace(" ", "_")
+        # Logged as handed over: every caller has already run its own literal
+        # through tr(). Translating here instead cannot work -- by this point
+        # the image name is substituted and nothing would match a key.
         self._log(message)
 
         if mode == "run_blocks":
             fallback = blockmod.normalize_list(params.get("on_fail_blocks"))
             if not fallback:
-                self._log("   (no fallback blocks -- continuing)")
+                self._log(tr("   (no fallback blocks -- continuing)"))
                 return
-            self._log("   running %d fallback block(s)" % len(fallback))
+            self._log(tr("   running %d fallback block(s)") % len(fallback))
             # Nested one level only: a fallback that could itself restart the
             # phase from inside a fallback is a loop nobody can follow.
             depth = self._fallback_depth
             if depth >= _MAX_FALLBACK_DEPTH:
-                self._log("   fallback nested too deep -- skipping")
+                self._log(tr("   fallback nested too deep -- skipping"))
                 return
             self._fallback_depth = depth + 1
             try:
                 self._run_blocks(fallback, self._phase_key or blockmod.PHASE_REPEAT,
-                                 label="Fallback")
+                                 label=tr("Fallback"))
             finally:
                 self._fallback_depth = depth
 
@@ -475,19 +711,21 @@ class MacroRunner:
             after = str(params.get("on_fail_after")
                         or "continue main").strip().lower().replace(" ", "_")
             if after == "restart_phase":
-                self._log("   fallback done -- restarting the phase")
+                self._log(tr("   fallback done -- restarting the phase"))
                 raise _RestartPhase()
             if after == "restart_macro":
-                self._log("   fallback done -- restarting the macro")
+                self._log(tr("   fallback done -- restarting the macro"))
                 raise _RestartRun()
             if after == "stop":
-                self._log("   fallback done -- stopping")
+                self._log(tr("   fallback done -- stopping"))
                 self._stop_event.set()
                 raise _StopRun()
             return
 
         if mode == "restart_phase":
             raise _RestartPhase()
+        if mode == "restart_macro":
+            raise _RestartRun()
         if mode == "skip_rest":
             raise _SkipRest()
         if mode == "stop":
@@ -543,11 +781,41 @@ class MacroRunner:
         finally:
             self._held_buttons.discard(button)
 
+    # A recorded path is a series of SAMPLES. Jumping straight to each one
+    # reads as teleporting whenever two samples are far apart -- which is
+    # what an old recording taken at the previous 80ms sample rate looks
+    # like. Long hops are therefore split into short ones. Nothing is added
+    # for a dense path: a sample within _SMOOTH_STEP_PX of the last position
+    # is sent as-is, so a modern recording pays no cost and gains no delay.
+    _SMOOTH_STEP_PX = 14
+    _SMOOTH_MAX_STEPS = 8
+    _SMOOTH_STEP_S = 0.002
+
+    def _move_smooth(self, x: int, y: int) -> None:
+        try:
+            cx, cy = self.mouse.position()
+        except Exception:
+            self.mouse.move_to(x, y)
+            return
+        distance = max(abs(int(x) - int(cx)), abs(int(y) - int(cy)))
+        if distance <= self._SMOOTH_STEP_PX:
+            self.mouse.move_to(x, y)
+            return
+        steps = min(self._SMOOTH_MAX_STEPS, distance // self._SMOOTH_STEP_PX)
+        for i in range(1, steps):
+            fraction = i / steps
+            self.mouse.move_to(int(cx + (x - cx) * fraction),
+                               int(cy + (y - cy) * fraction))
+            time.sleep(self._SMOOTH_STEP_S)
+        self.mouse.move_to(x, y)
+
     def _do_move(self, params) -> None:
         x, y = self._to_screen(params.get("x", 0), params.get("y", 0))
         duration = max(0.0, self._num(params, "duration_ms", 0)) / 1000.0
         if duration <= 0:
-            self.mouse.move_to(x, y)
+            # No explicit duration: a straight jump for a short hop, a few
+            # interpolated points for a long one. No pacing delay either way.
+            self._move_smooth(x, y)
             return
         sx, sy = self.mouse.position()
         steps = max(2, int(duration * 60))
@@ -558,16 +826,460 @@ class MacroRunner:
             self.mouse.move_to(int(sx + (x - sx) * t), int(sy + (y - sy) * t))
             time.sleep(duration / steps)
 
+    def _do_move_by(self, params) -> None:
+        """Move the cursor BY an offset from wherever it is now.
+
+        Sent as RELATIVE input, not as a jump to (position + offset). A game
+        that locks and hides the pointer recenters it every frame and reads
+        raw deltas, so an absolute jump moves nothing there; in an ordinary
+        window the two look identical. See Mouse.move_by().
+
+        Nothing here goes through _to_screen either: an offset is the same
+        number of pixels in window space and in screen space, and converting
+        it would add the window's origin on top.
+
+        A zero on an axis means "leave that axis alone", which falls out of
+        the arithmetic -- dx=0, dy=200 lands 200px lower at the same X.
+        """
+        dx = int(self._num(params, "dx", 0))
+        dy = int(self._num(params, "dy", 0))
+        if not dx and not dy:
+            # Both zero is a no-op, not "move to 0,0".
+            return
+        duration = max(0.0, self._num(params, "duration_ms", 0)) / 1000.0
+        if duration <= 0:
+            # One relative event: the smallest thing a game can read as a
+            # mouse delta, and instant in a normal window.
+            self.mouse.move_by(dx, dy)
+            return
+        steps = max(2, int(duration * 60))
+        delay = duration / steps
+        for i in range(1, steps + 1):
+            if self._checkpoint():
+                return
+            # Sliced by hand rather than handed to move_by(steps=...) so Stop
+            # and Pause are honoured between steps of a long glide.
+            self.mouse.move_by(int(round(dx * i / steps)) - int(round(dx * (i - 1) / steps)),
+                               int(round(dy * i / steps)) - int(round(dy * (i - 1) / steps)))
+            time.sleep(delay)
+
     def _do_drag(self, params) -> None:
-        x1, y1 = self._to_screen(params.get("x", 0), params.get("y", 0))
-        x2, y2 = self._to_screen(params.get("x2", 0), params.get("y2", 0))
+        """Drag, with either end optionally free of fixed coordinates.
+
+        From "current" starts wherever the cursor already is -- for dragging
+        something the macro has just picked up or hovered, whose position is
+        not known when the block is written. To "offset" reads x2/y2 as a
+        delta instead of a destination, so "0, 200" drags 200 pixels straight
+        down from the start regardless of where that start turned out to be.
+
+        Missing or unknown values fall back to "point", so every macro saved
+        before this existed behaves exactly as it did.
+        """
+        from_mode = str(params.get("from_mode") or "point").strip().lower()
+        to_mode = str(params.get("to_mode") or "point").strip().lower()
+
+        x1 = y1 = None
+        if from_mode == "current":
+            try:
+                position = self.mouse.position()
+                x1, y1 = int(position[0]), int(position[1])
+            except Exception:
+                # Cursor position unreadable: the written point is a better
+                # answer than refusing to drag.
+                x1 = y1 = None
+        if x1 is None:
+            x1, y1 = self._to_screen(params.get("x", 0), params.get("y", 0))
+
         button = str(params.get("button") or "left")
+        duration = max(0.0, self._num(params, "duration_ms", 250) / 1000.0)
+
+        if to_mode == "offset":
+            # Relative input all the way, never "start + delta" as absolute
+            # coordinates: this is the mode a locked-cursor game needs, where
+            # the pointer is recentered every frame and only raw deltas are
+            # read. An offset is also the same number of pixels in window and
+            # screen space, so there is nothing to convert.
+            dx = int(self._num(params, "x2", 0))
+            dy = int(self._num(params, "y2", 0))
+            self._held_buttons.add(button)
+            try:
+                if from_mode != "current":
+                    # Park on the written start point first; from "current"
+                    # the cursor is already where the drag should begin, and
+                    # moving it would undo a deliberate hover.
+                    self.mouse.move_to(x1, y1)
+                    time.sleep(0.03)
+                # A real relative event before the button lands: some targets
+                # only register the hover from one, and never see the click.
+                self.mouse.nudge(1, 0)
+                self.mouse.nudge(-1, 0)
+                self.mouse.drag_by(dx, dy, button,
+                                   steps=max(1, int(duration * 60) or 1),
+                                   duration=duration)
+            finally:
+                self._held_buttons.discard(button)
+            return
+
+        x2, y2 = self._to_screen(params.get("x2", 0), params.get("y2", 0))
         self._held_buttons.add(button)
         try:
-            self.mouse.drag(x1, y1, x2, y2, button,
-                            duration=max(0.0, self._num(params, "duration_ms", 250) / 1000.0))
+            self.mouse.drag(x1, y1, x2, y2, button, duration=duration)
         finally:
             self._held_buttons.discard(button)
+
+    def _target_centre(self):
+        """Middle of the target window, or of the desktop in screen mode."""
+        hwnd = self._target()
+        if hwnd:
+            try:
+                left, top, width, height = wm.get_client_rect_screen(hwnd)
+                if width > 0 and height > 0:
+                    return left + width // 2, top + height // 2
+            except Exception:
+                pass
+        from ._sendinput import virtual_screen_rect
+        vx, vy, vw, vh = virtual_screen_rect()
+        return vx + (vw or 1) // 2, vy + (vh or 1) // 2
+
+    def _do_mouse_look(self, params) -> None:
+        """Camera-look drag: a button held while raw deltas are streamed.
+
+        This exists because Move and Drag cannot work in a game that locks
+        and hides the pointer. Such a game recenters the cursor every frame
+        and turns the camera from the RAW deltas, so an absolute reposition
+        registers as no movement at all, and reading the cursor back gives
+        the recentered point rather than where the macro thinks it is.
+
+        Two modes, and the default one is the reason this block was
+        rewritten. How far the camera turns per pixel of delta is the GAME's
+        mouse sensitivity, which is not ours to read and differs from machine
+        to machine (a PC and a VM will not agree, and a VM's own pointer
+        scaling piles on top). So a fixed amount of travel cannot land the
+        camera in a repeatable place -- it lands at a different pitch on every
+        setup, which looks exactly like "the camera is offset".
+
+        "to limit" therefore does not aim at all: it sends far more travel
+        than any sensitivity needs (40000 px by default) so the camera runs
+        into its own pitch stop and ends pinned against it. Past the stop the
+        extra deltas do nothing, so overshooting is free -- and the stop is
+        the one position that is identical everywhere. This is why the
+        reference script's single mouse_event(MOVE, 0, 10000) works where a
+        careful 3200 px did not.
+
+        "exact" keeps the old behaviour for the rare case where a measured
+        turn is what is wanted, and it is still spread over several deltas:
+        a target reading one delta per frame clamps a single huge jump to a
+        fraction of the turn, while a stream of moderate ones lands in full.
+        """
+        button = str(params.get("button") or "right").strip().lower()
+        mode = str(params.get("mode") or "to limit").strip().lower()
+        dx = int(self._num(params, "dx", 0))
+        dy = int(self._num(params, "dy", 0))
+        step_delay = max(0.0, self._num(params, "step_delay_ms", 8)) / 1000.0
+        settle = max(0.0, self._num(params, "settle_ms", 80)) / 1000.0
+
+        if mode == "exact":
+            steps = max(1, int(self._num(params, "steps", 1)))
+        else:
+            # Repeat the delta until the sweep has been sent. Capped so a
+            # silly sweep with a tiny delta cannot spin here for minutes.
+            sweep = max(1, int(self._num(params, "sweep_px", 40000)))
+            per = max(abs(dx), abs(dy)) or 1
+            steps = min(2000, max(1, (sweep + per - 1) // per))
+            self._log(tr("Camera: sweeping %d px past the limit (%d x %d,%d).")
+                      % (steps * per, steps, dx, dy))
+
+        if params.get("centre_first", True):
+            # The button has to land inside the target, and the middle is the
+            # one point that is always inside it.
+            centre_x, centre_y = self._target_centre()
+            self.mouse.move_to(centre_x, centre_y)
+            time.sleep(0.15)
+            # A genuine relative event, so the target sees a hover before the
+            # press rather than a cursor that teleported in.
+            self.mouse.nudge(1, 0)
+            self.mouse.nudge(-1, 0)
+            time.sleep(0.05)
+
+        held = button in ("left", "right", "middle")
+        if held:
+            self._held_buttons.add(button)
+            self.mouse.down(button)
+        try:
+            time.sleep(settle)
+            for _ in range(steps):
+                if self._checkpoint():
+                    return
+                self.mouse.move_by(dx, dy)
+                time.sleep(step_delay)
+            time.sleep(settle)
+        finally:
+            # In finally, and before anything else can raise: a right button
+            # left physically down turns every later move in the run into a
+            # camera drag.
+            if held:
+                self.mouse.up(button)
+                self._held_buttons.discard(button)
+
+    # ------------------------------------------------------------- roblox
+
+    def _guess_map_reference(self, img_w, img_h):
+        """What an undescribed map picture is most likely a picture of.
+
+        Only pictures imported as files reach this -- anything shot inside the
+        app records its own frame of reference next to the PNG. The shape is
+        the one clue a bare image carries, and it is a decent one: a shot of
+        the whole 1920x1080 screen and a 900x700 game window are not the same
+        proportions.
+
+        Ties go to the screen. Reading a full-screen picture as a window one
+        is off by the window's entire offset on screen (the mistake that put
+        units well above where they were picked), while the other way round
+        is a scaling error inside the right area.
+        """
+        aspect = float(img_w) / float(img_h or 1)
+        client = None
+        hwnd = self._target()
+        if hwnd:
+            try:
+                cw, ch = wm.get_client_size(hwnd)
+            except Exception:
+                cw = ch = 0
+            if cw > 0 and ch > 0:
+                client = (cw, ch)
+        try:
+            screen_w, screen_h = wm.get_screen_size()
+        except Exception:
+            screen_w = screen_h = 0
+
+        if client and screen_w > 0 and screen_h > 0:
+            window_err = abs(aspect - float(client[0]) / client[1])
+            screen_err = abs(aspect - float(screen_w) / screen_h)
+            if window_err < screen_err - 0.01:
+                self._log(tr("This map picture has no saved geometry -- "
+                             "read as a window shot."))
+                return {"origin": "window", "left": 0, "top": 0,
+                        "width": client[0], "height": client[1],
+                        "ref_width": client[0], "ref_height": client[1]}
+        if screen_w > 0 and screen_h > 0:
+            self._log(tr("This map picture has no saved geometry -- "
+                         "read as a whole-screen shot."))
+            return {"origin": "screen", "left": 0, "top": 0,
+                    "width": screen_w, "height": screen_h}
+        # No screen metrics at all: the picture's own pixels are all there is.
+        return {"origin": "window", "left": 0, "top": 0,
+                "width": int(img_w), "height": int(img_h),
+                "ref_width": int(img_w), "ref_height": int(img_h)}
+
+    def _map_point_to_screen(self, location):
+        """A spot picked on a map picture -> absolute screen point.
+
+        The point is stored as a fraction of the picture it was picked on, and
+        turned into a real point here using what that picture WAS:
+
+        - a whole-screen shot means absolute screen pixels, and the target
+          window must not enter into it at all -- scaling a screen picture
+          into a window's client area is what placed units above the spot
+          that was picked, by the window's own offset on screen;
+        - a window shot means client pixels, rescaled to whatever size that
+          client area is now, which is what lets one macro survive the game
+          window being resized.
+        """
+        if not isinstance(location, (list, tuple)) or len(location) < 5:
+            return None
+        try:
+            map_x, map_y = float(location[1]), float(location[2])
+            img_w, img_h = float(location[3]), float(location[4])
+        except (TypeError, ValueError):
+            return None
+        if img_w <= 0 or img_h <= 0:
+            return None
+        fx, fy = map_x / img_w, map_y / img_h
+
+        from . import maps
+        meta = maps.read_meta(location[0]) or self._guess_map_reference(img_w, img_h)
+
+        if meta["origin"] == "screen":
+            return (int(round(meta["left"] + fx * meta["width"])),
+                    int(round(meta["top"] + fy * meta["height"])))
+
+        client_x = meta["left"] + fx * meta["width"]
+        client_y = meta["top"] + fy * meta["height"]
+        ref_w = float(meta.get("ref_width") or meta["width"])
+        ref_h = float(meta.get("ref_height") or meta["height"])
+
+        hwnd = self._target()
+        if hwnd:
+            try:
+                width, height = wm.get_client_size(hwnd)
+            except Exception:
+                width = height = 0
+            if width > 0 and height > 0:
+                return wm.client_to_screen(
+                    hwnd,
+                    int(round(client_x / ref_w * width)),
+                    int(round(client_y / ref_h * height)))
+
+        # The target is gone: nothing better than spreading the picture over
+        # the desktop is available, and refusing outright would break macros
+        # that run against whatever is in front.
+        from ._sendinput import virtual_screen_rect
+        vx, vy, vw, vh = virtual_screen_rect()
+        return (vx + int(round(fx * (vw or 1))),
+                vy + int(round(fy * (vh or 1))))
+
+    def _do_place_unit(self, params) -> None:
+        """Press the unit's hotkey, then click the spot picked on the map.
+
+        Deliberately not a bare click: in a tower-defence style game the
+        hotkey is what puts the game into placement mode, and a click without
+        it lands on the world and does nothing at all.
+        """
+        point = self._map_point_to_screen(params.get("location"))
+        if point is None:
+            # Not a _fail: an unfinished block is a setup mistake, and
+            # stopping the whole run for it hides which block it was.
+            self._log(tr("No location picked for the unit."))
+            return
+        name = params.get("unit")
+        vk = keymod.key_name_to_vk(name)
+        if vk is None:
+            self._log(tr("Unknown key: %r") % (name,))
+            return
+
+        self._held_keys.add(vk)
+        try:
+            self.keyboard.tap(vk, 0.03)
+        finally:
+            self._held_keys.discard(vk)
+        # The game enters placement mode on the hotkey and needs time to
+        # spawn the ghost; a click before that is swallowed, so the wait is
+        # generous by default and adjustable per block.
+        self._sleep(max(0.0, self._num(params, "key_delay_ms", 500)) / 1000.0)
+        if self._checkpoint():
+            return
+
+        # Two clicks by default: the first one is eaten as "aim" by the
+        # placement ghost often enough that a single click leaves the unit
+        # unplaced with the hotkey still armed. multi_click keeps the pair
+        # inside the double-click window -- looping click() here would put
+        # the global Macro Speed delay between them and the game would see
+        # two unrelated clicks.
+        clicks = int(self._num(params, "clicks", 2) or 2)
+        if clicks < 1:
+            clicks = 1
+        self._held_buttons.add("left")
+        try:
+            self.mouse.multi_click(point[0], point[1], "left", count=clicks)
+        finally:
+            self._held_buttons.discard("left")
+        self._log(tr("Placed %s at %s,%s") % (name, point[0], point[1]))
+        self._sleep(max(0.0, self._num(params, "after_ms", 250)) / 1000.0)
+
+    def _do_roblox_rejoin(self, params) -> None:
+        """Restart the Roblox client and rejoin the server.
+
+        Roblox has no reconnect of its own, so this does what a hand-written
+        rejoin script does: close the client, then hand the launcher a
+        roblox:// deep link carrying the place id and the private server's
+        linkCode.
+
+        Order matters in two places.
+
+        The exe path is read BEFORE the kill. It lives in a per-version
+        folder that changes with every Roblox update, and the only reliable
+        way to know the current one is to ask the running process -- after
+        the kill there is nothing left to ask.
+
+        The client must really be gone before the link is sent. A live client
+        swallows the deep link and stays in the server it is already in, so
+        the macro would wait out the whole timeout for a join that never
+        started.
+
+        Finally the new window becomes the target: the old hwnd died with the
+        old process, and every window-relative coordinate in the macro would
+        otherwise be measured against a window that no longer exists.
+        """
+        from . import roblox
+        from . import settings as settingsmod
+
+        if not roblox.available():
+            self._fail(params, tr("Rejoin only works on Windows."))
+            return
+
+        cfg = settingsmod.load()
+        # A share link is the whole invite in one string, so it wins over the
+        # hand-typed pair: pasting one instead of picking the id and the code
+        # apart by hand is the entire point of it.
+        share = roblox.parse_share_code(params.get("share_link")
+                                        or cfg.get("roblox_share_link") or "")
+        place = roblox.parse_place_id(params.get("place_id")
+                                     or cfg.get("roblox_place_id") or "")
+        code = roblox.parse_link_code(params.get("link_code")
+                                      or cfg.get("roblox_link_code") or "")
+        if share:
+            uri = roblox.share_uri(share)
+            where = tr("share link")
+        elif place:
+            uri = roblox.join_uri(place, code)
+            where = place + (tr(" (private server)") if code else "")
+        else:
+            self._fail(params, tr("Nothing to rejoin with -- paste a share "
+                                  "link, or a place id, on the block or in "
+                                  "Settings."))
+            return
+        exe = roblox.player_exe()
+
+        if bool(params.get("close_first", True)):
+            closed = roblox.close_players(
+                max(1.0, self._num(params, "close_wait_ms", 4000) / 1000.0))
+            self._log(tr("Closed %d Roblox client(s).") % closed)
+            if self._sleep(max(0.0, self._num(params, "close_wait_ms", 4000))
+                           / 1000.0):
+                return
+
+        self._log(tr("Rejoining %s...") % where)
+        if not roblox.launch(uri, exe):
+            self._fail(params, tr("Could not start the Roblox client."))
+            return
+
+        timeout = max(5.0, self._num(params, "timeout_ms", 90000) / 1000.0)
+        hwnd = roblox.wait_for_window(
+            timeout, 1.0, should_stop=lambda: self._stop_event.is_set())
+        if self._checkpoint():
+            return
+        if not hwnd:
+            self._fail(params, tr("Roblox did not come back within %ds.")
+                       % int(timeout))
+            return
+        self._log(tr("Roblox is back: %s") % wm.get_window_title(hwnd))
+
+        if bool(params.get("retarget", True)):
+            self._hwnd = int(hwnd)
+            self._target_was_alive = True
+            try:
+                settingsmod.update({"target_hwnd": int(hwnd),
+                                    "target_title": wm.get_window_title(hwnd),
+                                    "target_mode": "window"})
+            except Exception:
+                pass
+            wm.activate_window(hwnd)
+            self._log(tr("Target switched to the new Roblox window."))
+
+        # The window exists long before the place is loaded and playable, so
+        # the wait is generous by default: acting on a half-loaded game is
+        # what makes a rejoin look like it worked and then do nothing.
+        self._sleep(max(0.0, self._num(params, "settle_ms", 12000)) / 1000.0)
+
+    def _do_restart_loop(self, params) -> None:
+        """Start the phase this block sits in again, from its first block."""
+        self._log(tr("Block asked to restart the phase."))
+        raise _RestartPhase()
+
+    def _do_restart_macro(self, params) -> None:
+        """Start the whole macro again, Setup included."""
+        self._log(tr("Block asked to restart the macro."))
+        raise _RestartRun()
 
     def _do_scroll(self, params) -> None:
         x = params.get("x")
@@ -588,7 +1300,7 @@ class MacroRunner:
         name = params.get("key")
         vk = keymod.key_name_to_vk(name)
         if vk is None:
-            self._log("Unknown key: %r" % (name,))
+            self._log(tr("Unknown key: %r") % (name,))
             return
         modifiers = [keymod.MODIFIER_NAMES[m] for m in (params.get("modifiers") or [])
                      if m in keymod.MODIFIER_NAMES]
@@ -607,7 +1319,7 @@ class MacroRunner:
     def _do_hold_key(self, params) -> None:
         vk = keymod.key_name_to_vk(params.get("key"))
         if vk is None:
-            self._log("Unknown key: %r" % (params.get("key"),))
+            self._log(tr("Unknown key: %r") % (params.get("key"),))
             return
         self._held_keys.add(vk)
         try:
@@ -675,11 +1387,12 @@ class MacroRunner:
             return
         match = self._wait_image(params, name)
         if match is _MISSING_TEMPLATE:
-            self._fail(params, "No image named '%s' in Assets -- capture it first." % name)
+            self._fail(params, tr("No image named '%s' in Assets -- capture "
+                                  "it first.") % name)
         elif match is None:
-            self._fail(params, "Image '%s' did not appear." % name)
+            self._fail(params, tr("Image '%s' did not appear.") % name)
         else:
-            self._log("Found '%s' (%.2f)." % (name, match["score"]))
+            self._log(tr("Found '%s' (%.2f).") % (name, match["score"]))
 
     def _do_click_image(self, params) -> None:
         name = str(params.get("template") or "")
@@ -687,10 +1400,12 @@ class MacroRunner:
             return
         match = self._wait_image(params, name)
         if match is _MISSING_TEMPLATE:
-            self._fail(params, "No image named '%s' in Assets -- nothing clicked." % name)
+            self._fail(params, tr("No image named '%s' in Assets -- nothing "
+                                  "clicked.") % name)
             return
         if match is None:
-            self._fail(params, "Image '%s' not found -- nothing clicked." % name)
+            self._fail(params, tr("Image '%s' not found -- nothing clicked.")
+                       % name)
             return
         # Re-gate before acting: the image may have appeared at the exact
         # moment the user hit Pause or Stop, and a click is not undoable.
@@ -705,7 +1420,7 @@ class MacroRunner:
             self.mouse.click(sx, sy, button)
         finally:
             self._held_buttons.discard(button)
-        self._log("Clicked '%s' at %d,%d (%.2f)." % (name, cx, cy, match["score"]))
+        self._log(tr("Clicked '%s' at %d,%d (%.2f).") % (name, cx, cy, match["score"]))
 
     def _do_wait_image_gone(self, params) -> None:
         name = str(params.get("template") or "")
@@ -720,10 +1435,10 @@ class MacroRunner:
         except vision.TemplateNotFound:
             # Nothing to look for means nothing can be on screen. Log it so a
             # typo is visible, but treat the condition as satisfied.
-            self._log("No image named '%s' in Assets -- treating as already gone." % name)
+            self._log(tr("No image named '%s' in Assets -- treating as already gone.") % name)
             return
         if not gone:
-            self._fail(params, "Image '%s' is still on screen." % name)
+            self._fail(params, tr("Image '%s' is still on screen.") % name)
 
     def _do_wait_color(self, params) -> None:
         rgb = _hex_to_rgb(params.get("color"))
@@ -734,7 +1449,7 @@ class MacroRunner:
             max(0.0, self._num(params, "timeout_ms", 8000) / 1000.0),
             stop_event=self._gate)
         if not ok:
-            self._fail(params, "Color %s never appeared at %s,%s."
+            self._fail(params, tr("Color %s never appeared at %s,%s.")
                        % (params.get("color"), params.get("x"), params.get("y")))
 
     def _do_wait_text(self, params) -> None:
@@ -752,15 +1467,15 @@ class MacroRunner:
                 if exact:
                     text = ocr.read_text(frame)
                     if text.strip().lower() == needle.lower():
-                        self._log("Text matched exactly: %r" % text.strip())
+                        self._log(tr("Text matched exactly: %r") % text.strip())
                         return
                 else:
                     hit = ocr.find_text(frame, needle, confidence)
                     if hit:
-                        self._log("Text matched: %r (%.2f)" % (hit["text"], hit["score"]))
+                        self._log(tr("Text matched: %r (%.2f)") % (hit["text"], hit["score"]))
                         return
             time.sleep(0.35)
-        self._fail(params, "Text %r not found." % needle)
+        self._fail(params, tr("Text %r not found.") % needle)
 
     def _do_click_text(self, params) -> None:
         """OCR the region, locate the words, click them.
@@ -788,7 +1503,8 @@ class MacroRunner:
             time.sleep(0.35)
 
         if not hit:
-            self._fail(params, "Text %r not found -- nothing clicked." % needle)
+            self._fail(params, tr("Text %r not found -- nothing clicked.")
+                       % needle)
             return
         if self._checkpoint():
             return
@@ -803,7 +1519,7 @@ class MacroRunner:
             self.mouse.click(sx, sy, button)
         finally:
             self._held_buttons.discard(button)
-        self._log("Clicked text %r at %d,%d (%.2f)" % (hit["text"], cx, cy, hit["score"]))
+        self._log(tr("Clicked text %r at %d,%d (%.2f)") % (hit["text"], cx, cy, hit["score"]))
 
     def _do_click_color(self, params) -> None:
         """Find the largest blob of a colour and click its centre.
@@ -827,7 +1543,7 @@ class MacroRunner:
             time.sleep(0.25)
 
         if not found:
-            self._fail(params, "Colour %s not found -- nothing clicked."
+            self._fail(params, tr("Colour %s not found -- nothing clicked.")
                        % params.get("color"))
             return
         if self._checkpoint():
@@ -842,18 +1558,158 @@ class MacroRunner:
             self.mouse.click(sx, sy, button)
         finally:
             self._held_buttons.discard(button)
-        self._log("Clicked colour %s at %d,%d (%d px)"
+        self._log(tr("Clicked colour %s at %d,%d (%d px)")
                   % (params.get("color"), cx, cy, found["area"]))
 
     def _do_read_text(self, params) -> None:
-        frame = capture.capture_target_bgr(self._target(), self._region(params))
-        self._log("Read: %r" % ocr.read_text(frame).strip())
+        region = self._region(params)
+        frame = capture.capture_target_bgr(self._target(), region)
+        confidence = max(0.0, min(1.0, self._num(params, "confidence", 0.75)))
+        # Use find_text (same engine as click_text / wait_text): it applies
+        # the confidence threshold and fuzzy matching so OCR misreads don't
+        # silently swallow a match.  Empty needle -> first recognised line.
+        hit = ocr.find_text(frame, "", confidence) if frame is not None else None
+        # read_text still does the full-region sweep for the compare operators.
+        text = ocr.read_text(frame).strip() if frame is not None else ""
+        self._log(tr("Read: %r") % text)
 
-    # ---------------------------------------------------------------- flow
+        op = str(params.get("compare") or "off").strip().lower().replace("_", " ")
+        if op in ("", "off", "none"):
+            return
+        wanted = str(params.get("expect") or "")
+
+        # A missing number is its own failure: ">" against unreadable text is
+        # not "false", it is "there was nothing to compare", and saying so in
+        # the log is the difference between a five-second and an hour-long fix.
+        if op in _NUMERIC_COMPARE and (_as_number(text) is None
+                                       or _as_number(wanted) is None):
+            self._fail(params, tr("Text check failed: no number in %r vs %r")
+                       % (text, wanted))
+            return
+
+        if _compare_text(text, op, wanted):
+            self._log(tr("   text check passed: %r %s %r") % (text, op, wanted))
+            return
+        self._fail(params, tr("Text check failed: %r %s %r") % (text, op, wanted))
+
+    # ------------------------------------------------------------ system
+
+    def _do_open_app(self, params) -> None:
+        import subprocess
+        path = str(params.get("path") or "").strip()
+        if not path:
+            self._log(tr("Open App: no path given."))
+            return
+        args_str = str(params.get("args") or "").strip()
+        cmd = [path] + (args_str.split() if args_str else [])
+        try:
+            subprocess.Popen(cmd)
+            self._log(tr("Opened: %s") % path)
+        except Exception as exc:
+            self._log(tr("Open App failed: %s") % exc)
+        wait_ms = int(self._num(params, "wait_ms", 0))
+        if wait_ms > 0:
+            import time as _time
+            _time.sleep(wait_ms / 1000.0)
+
+    def _do_kill_process(self, params) -> None:
+        name_pat = str(params.get("name") or "").strip().lower()
+        if not name_pat:
+            self._log(tr("Kill Process: no process name given."))
+            return
+        force = bool(params.get("force", True))
+        killed = []
+        try:
+            import psutil
+            for proc in psutil.process_iter(["pid", "name"]):
+                try:
+                    pname = (proc.info["name"] or "").lower()
+                    if name_pat in pname:
+                        if force:
+                            proc.kill()
+                        else:
+                            proc.terminate()
+                        killed.append(pname)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except ImportError:
+            # psutil not installed: fall back to taskkill on Windows
+            import subprocess
+            try:
+                flag = "/F" if force else ""
+                cmd = ["taskkill", "/IM", "*%s*" % name_pat]
+                if force:
+                    cmd.insert(1, "/F")
+                result = subprocess.run(cmd, capture_output=True)
+                if result.returncode == 0:
+                    killed.append(name_pat)
+            except Exception as exc:
+                self._log(tr("Kill Process: %s") % exc)
+        if killed:
+            self._log(tr("Killed: %s") % ", ".join(killed))
+        else:
+            self._log(tr("Kill Process: no process matching %r found.") % name_pat)
+
+        # ------------------------------------------------- conditions / control flow
+
+    def _cond_ctx(self):
+        from .conditions import _ConditionContext
+        return _ConditionContext(self)
+
+    def _eval_cond(self, cond) -> bool:
+        from . import conditions as conds
+        return conds.evaluate(cond, self._cond_ctx())
+
+    def _do_if_else(self, params) -> None:
+        from .blocks import normalize_list
+        cond = params.get('condition')
+        result = self._eval_cond(cond) if cond else False
+        branch_key = 'then_blocks' if result else 'else_blocks'
+        blocks = normalize_list(params.get(branch_key) or [])
+        branch_name = 'Then' if result else 'Else'
+        self._log(tr('If: condition %s -> %s') % ('true' if result else 'false', branch_name))
+        if blocks:
+            self._run_blocks(blocks, self._phase_key or 'loop', label=branch_name)
+
+    def _do_while_loop(self, params) -> None:
+        from .blocks import normalize_list
+        cond = params.get('condition')
+        blocks = normalize_list(params.get('blocks') or [])
+        max_iter = int(self._num(params, 'max_iter', 100))
+        iteration = 0
+        while iteration < max_iter:
+            if self._checkpoint():
+                return
+            if not self._eval_cond(cond):
+                break
+            self._log(tr('While: iteration %d') % (iteration + 1))
+            self._run_blocks(blocks, self._phase_key or 'loop', label='While')
+            iteration += 1
+        if iteration >= max_iter:
+            self._log(tr('While: reached max iterations (%d)') % max_iter)
+
+    def _do_repeat_until(self, params) -> None:
+        from .blocks import normalize_list
+        cond = params.get('condition')
+        blocks = normalize_list(params.get('blocks') or [])
+        max_iter = int(self._num(params, 'max_iter', 100))
+        iteration = 0
+        while iteration < max_iter:
+            if self._checkpoint():
+                return
+            self._log(tr('Repeat: iteration %d') % (iteration + 1))
+            self._run_blocks(blocks, self._phase_key or 'loop', label='Repeat')
+            iteration += 1
+            if self._eval_cond(cond):
+                break
+        if iteration >= max_iter:
+            self._log(tr('Repeat Until: reached max iterations (%d)') % max_iter)
+
+        # ---------------------------------------------------------------- flow
 
     def _do_focus_window(self, params) -> None:
         if not (self._hwnd and wm.is_window(self._hwnd)):
-            self._log("No target window to focus.")
+            self._log(tr("No target window to focus."))
             return
         wm.activate_window(self._hwnd)
         time.sleep(0.2)
@@ -891,10 +1747,10 @@ class MacroRunner:
         if resize and (abs(got_w - width) > 2 or abs(got_h - height) > 2):
             # Plenty of windows refuse a size (fixed dialogs, fullscreen
             # games). Saying so beats every later click silently missing.
-            self._log("Target would not resize to %dx%d -- it is %dx%d."
+            self._log(tr("Target would not resize to %dx%d -- it is %dx%d.")
                       % (width, height, got_w, got_h))
         else:
-            self._log("Target now %dx%d at %d,%d." % (got_w, got_h, x, y))
+            self._log(tr("Target now %dx%d at %d,%d.") % (got_w, got_h, x, y))
 
     def _do_log(self, params) -> None:
         self._log(str(params.get("text") or ""))
@@ -910,42 +1766,74 @@ class MacroRunner:
 
         cfg = settingsmod.load()
         if not cfg.get("webhook_enabled"):
-            self._log("Webhook is switched off in Settings -- nothing sent.")
+            self._log(tr("Webhook is switched off in Settings -- nothing sent."))
             return
         url = str(cfg.get("webhook_url") or "")
         check = hook.validate(url)
         if not check["valid"]:
-            self._log("Webhook URL is not usable (%s) -- nothing sent." % check["reason"])
+            self._log(tr("Webhook URL is not usable (%s) -- nothing sent.") % check["reason"])
             return
 
         source = str(params.get("source") or "none").strip().lower()
         image = None
-        label = "no attachment"
+        label = tr("no attachment")
         if source in ("target window", "whole screen", "region"):
             hwnd = self._target() if source == "target window" else 0
             region = self._region(params) if source == "region" else None
             frame = capture.capture_target_bgr(hwnd, region)
             if frame is None:
-                self._log("Could not capture the %s -- sending text only." % source)
+                self._log(tr("Could not capture the %s -- sending text only.")
+                          % _source_name(source))
             else:
                 image = hook.shrink_to_limit(frame)
-                label = "%s (%dx%d)" % (source, frame.shape[1], frame.shape[0])
+                label = "%s (%dx%d)" % (_source_name(source),
+                                        frame.shape[1], frame.shape[0])
         elif source == "saved image":
             name = str(params.get("template") or "")
             paths = vision.template_variant_paths(name)
             if not paths:
-                self._log("No saved image named '%s' -- sending text only." % name)
+                self._log(tr("No saved image named '%s' -- sending text only.") % name)
             else:
                 img = vision.imread_unicode(paths[0])
                 image = hook.encode_png(img)
-                label = "image '%s'" % name
+                label = tr("image '%s'") % name
 
-        result = hook.send(url, str(params.get("message") or ""), image,
+        stats = self.run_stats()
+        fields = [
+            {"name": tr("Runtime"),
+             "value": hook.format_duration(stats["elapsed_s"])},
+            {"name": tr("Loop passes"), "value": str(stats["passes"])},
+        ]
+        if stats["watch_fires"]:
+            fields.append({"name": tr("Watch fired"),
+                           "value": str(stats["watch_fires"])})
+        target = ""
+        if self._hwnd and wm.is_window(self._hwnd):
+            target = wm.get_window_title(self._hwnd) or str(self._hwnd)
+        fields.append({"name": tr("Target"), "value": target or tr("Whole screen")})
+        if image is not None:
+            fields.append({"name": tr("Attachment"), "value": label})
+
+        embed = hook.build_embed(
+            title=(str(params.get("title") or "") or
+                   str(cfg.get("webhook_title") or tr("Macro report"))),
+            description=(str(params.get("message") or "") or
+                         str(cfg.get("webhook_description") or "")),
+            fields=fields,
+            image_filename="capture.png" if image is not None else "",
+            footer=(str(params.get("footer") or "") or
+                    str(cfg.get("webhook_footer") or "Macro Studio")),
+            color=str(params.get("color") or cfg.get("webhook_color") or ""),
+            timestamp=(bool(params["timestamp"]) if "timestamp" in params
+                       else bool(cfg.get("webhook_timestamp", True))))
+        # The text body stays empty on purpose: the same words inside the
+        # embed AND above it reads like a stutter in the channel.
+        result = hook.send(url, "", image, embed=embed,
                            username=str(cfg.get("webhook_username") or "") or "Macro Studio")
         if result.get("ok"):
-            self._log("Webhook sent (%s)." % label)
+            self._log(tr("Webhook sent (%s).") % label)
         else:
-            self._log("Webhook failed: %s" % result.get("reason"))
+            self._log(tr("Webhook failed: %s") % result.get("reason"))
 
     def _do_playback(self, params) -> None:
         """Play a saved recording.
@@ -971,19 +1859,19 @@ class MacroRunner:
         if edited is not None:
             actions = blockmod.normalize_list(edited)
             if actions:
-                self._log("Playing '%s' (%d edited actions)" % (name, len(actions)))
+                self._log(tr("Playing '%s' (%d edited actions)") % (name, len(actions)))
                 # Runs through the normal block machinery, so loops, on_fail
                 # policies and per-block logging all work inside a recording.
                 self._run_blocks(actions, self._phase_key or blockmod.PHASE_REPEAT)
                 return
-            self._log("Recording '%s' has an empty action list -- nothing to do." % name)
+            self._log(tr("Recording '%s' has an empty action list -- nothing to do.") % name)
             return
 
         events = data.get("events") or []
         if not events:
-            self._log("Recording '%s' is empty." % name)
+            self._log(tr("Recording '%s' is empty.") % name)
             return
-        self._log("Playing '%s' (%d raw events)" % (name, len(events)))
+        self._log(tr("Playing '%s' (%d raw events)") % (name, len(events)))
         speed = max(0.05, self._num(params, "speed", 1.0))
         ordered = sorted(events, key=lambda e: e.get("t", 0.0))
         try:
@@ -1020,7 +1908,7 @@ class MacroRunner:
                 x = int(ev.get("sx", ev.get("x", 0)))
                 y = int(ev.get("sy", ev.get("y", 0)))
             if etype == "move":
-                self.mouse.move_to(x, y)
+                self._move_smooth(x, y)
                 return
             button = str(ev.get("button") or "left")
             self.mouse.move_to(x, y)
@@ -1074,6 +1962,22 @@ class MacroRunner:
             else:
                 self.keyboard.key_up(vk)
                 self._held_keys.discard(vk)
+
+
+def _source_name(source: str) -> str:
+    """A webhook capture source in words.
+
+    The option strings are stored inside saved macros, so they stay English
+    identifiers; this is the one place they become something a translated
+    log line can carry.
+    """
+    if source == "target window":
+        return tr("target window")
+    if source == "whole screen":
+        return tr("whole screen")
+    if source == "region":
+        return tr("region")
+    return source
 
 
 def _hex_to_rgb(value):

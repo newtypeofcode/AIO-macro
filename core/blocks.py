@@ -8,28 +8,83 @@ Field kinds the UI understands -- FIELD_KINDS below is the authoritative
 list; a kind not in it has no renderer and would leave a blank row.
 """
 import copy
+from collections import abc
 
-PHASES = ("setup", "loop")
-PHASE_LABELS = {"setup": "Setup", "loop": "Loop"}
+from .i18n import tr
+
+PHASES = ("setup", "loop", "watch")
 # The phase that runs once, and the one that repeats. The runner reads these
 # rather than hardcoding the strings, so the two cannot drift apart.
 PHASE_ONCE = "setup"
 PHASE_REPEAT = "loop"
+# Checked between blocks for as long as the macro runs. It is not part of the
+# sequence: it interrupts it, does its thing, and then hands control back
+# according to WATCH_AFTER_OPTIONS.
+PHASE_WATCH = "watch"
+
+
+class _PhaseLabels(abc.Mapping):
+    """The phase headings, translated on lookup rather than at import.
+
+    The KEYS are identifiers -- every saved macro stores them, so they can
+    never change. The values are read text: main.py builds the UI's phase
+    headings from them and the runner puts them into four log lines, all of
+    it long after this module is imported and after the language may have
+    been switched, so a plain dict of English words froze both in whichever
+    language the process happened to start in.
+    """
+
+    def __iter__(self):
+        return iter(PHASES)
+
+    def __len__(self):
+        return len(PHASES)
+
+    def __getitem__(self, key):
+        # Literal arguments rather than tr() over a stored English value:
+        # the table scan in tests/test_messages.py reads the syntax tree, and
+        # a message it cannot see is one that never gets a Russian entry.
+        if key == PHASE_ONCE:
+            return tr("Setup")
+        if key == PHASE_REPEAT:
+            return tr("Loop")
+        if key == PHASE_WATCH:
+            return tr("Watch")
+        raise KeyError(key)
+
+
+# Mapping, not dict: get(), items() and values() are then derived from the
+# lookup above, so there is no second copy of the English to go stale.
+PHASE_LABELS = _PhaseLabels()
 
 FIELD_KINDS = ("int", "float", "text", "key", "bool", "choice", "modifiers",
-               "region", "color", "template", "recording", "blocks")
+               "region", "color", "template", "recording", "blocks",
+               "map_point", "condition", "conditions")
 
 # What a Vision block does when it does not find what it was looking for.
-ON_FAIL_OPTIONS = ["continue", "run blocks", "restart phase", "skip rest", "stop"]
+ON_FAIL_OPTIONS = ["continue", "run blocks", "restart phase", "restart macro",
+                   "skip rest", "stop"]
 # What happens once a "run blocks" fallback has finished.
 ON_FAIL_AFTER_OPTIONS = ["continue main", "restart phase", "restart macro", "stop"]
 
+# Camera Setup: sweep to the camera's own limit, or move an exact amount.
+LOOK_MODE_OPTIONS = ["to limit", "exact"]
+
+# What happens once the Watch phase has fired and finished its blocks.
+WATCH_AFTER_OPTIONS = ["continue", "restart loop", "restart macro"]
+
+# Read Text can compare what it read against a value. The numeric ones
+# parse a number out of the OCR string, so "Wave 12" > 9 works.
+TEXT_COMPARE_OPTIONS = ["off", "equals", "not equals", "contains",
+                        "not contains", "greater", "greater or equal",
+                        "less", "less or equal"]
+
 _ON_FAIL_TEMPLATE = [
-    {"key": "on_fail", "kind": "choice", "label": "On fail", "default": "continue",
+    {"key": "on_fail", "kind": "choice", "default": "continue",
      "options": ON_FAIL_OPTIONS},
     # Both only meaningful for "run blocks"; the UI hides them otherwise.
-    {"key": "on_fail_blocks", "kind": "blocks", "label": "Fallback", "default": []},
-    {"key": "on_fail_after", "kind": "choice", "label": "Then", "default": "continue main",
+    {"key": "on_fail_blocks", "kind": "blocks", "default": []},
+    {"key": "on_fail_after", "kind": "choice", "default": "continue main",
      "options": ON_FAIL_AFTER_OPTIONS},
 ]
 
@@ -45,168 +100,286 @@ def _on_fail_fields():
     """
     return copy.deepcopy(_ON_FAIL_TEMPLATE)
 
+# No `label` here, for blocks or for fields: block_help.apply_to() writes one
+# in the chosen language, and a second copy in this table would be dead text
+# that drifts away from the one people actually read.
 BLOCK_TYPES = [
     # ------------------------------------------------------------ mouse
-    {"type": "click", "label": "Click", "group": "Mouse", "color": "rose",
+    {"type": "click", "group": "Mouse", "color": "rose",
      "fields": [
-         {"key": "x", "kind": "int", "label": "X", "default": 0},
-         {"key": "y", "kind": "int", "label": "Y", "default": 0},
-         {"key": "button", "kind": "choice", "label": "Button", "default": "left",
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
+         {"key": "button", "kind": "choice", "default": "left",
           "options": ["left", "right", "middle"]},
-         {"key": "clicks", "kind": "int", "label": "Clicks", "default": 1},
-         {"key": "hold_ms", "kind": "int", "label": "Hold ms", "default": 40},
+         {"key": "clicks", "kind": "int", "default": 1},
+         {"key": "hold_ms", "kind": "int", "default": 40},
      ]},
-    {"type": "move", "label": "Move Mouse", "group": "Mouse", "color": "rose",
+    {"type": "move", "group": "Mouse", "color": "rose",
      "fields": [
-         {"key": "x", "kind": "int", "label": "X", "default": 0},
-         {"key": "y", "kind": "int", "label": "Y", "default": 0},
-         {"key": "duration_ms", "kind": "int", "label": "Duration ms", "default": 0},
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
+         {"key": "duration_ms", "kind": "int", "default": 0},
      ]},
-    {"type": "drag", "label": "Drag", "group": "Mouse", "color": "rose",
+    {"type": "move_by", "group": "Mouse", "color": "rose",
      "fields": [
-         {"key": "x", "kind": "int", "label": "From X", "default": 0},
-         {"key": "y", "kind": "int", "label": "From Y", "default": 0},
-         {"key": "x2", "kind": "int", "label": "To X", "default": 0},
-         {"key": "y2", "kind": "int", "label": "To Y", "default": 0},
-         {"key": "button", "kind": "choice", "label": "Button", "default": "left",
+         {"key": "dx", "kind": "int", "default": 0},
+         {"key": "dy", "kind": "int", "default": 0},
+         {"key": "duration_ms", "kind": "int", "default": 0},
+     ]},
+    {"type": "drag", "group": "Mouse", "color": "rose",
+     "fields": [
+         # Both default to "point", which is exactly what every macro
+         # saved before these two fields existed did.
+         {"key": "from_mode", "kind": "choice", "default": "point",
+          "options": ["point", "current"]},
+         {"key": "to_mode", "kind": "choice", "default": "point",
+          "options": ["point", "offset"]},
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
+         {"key": "x2", "kind": "int", "default": 0},
+         {"key": "y2", "kind": "int", "default": 0},
+         {"key": "button", "kind": "choice", "default": "left",
           "options": ["left", "right", "middle"]},
-         {"key": "duration_ms", "kind": "int", "label": "Duration ms", "default": 250},
+         {"key": "duration_ms", "kind": "int", "default": 250},
      ]},
-    {"type": "scroll", "label": "Scroll", "group": "Mouse", "color": "rose",
+    {"type": "scroll", "group": "Mouse", "color": "rose",
      "fields": [
-         {"key": "amount", "kind": "int", "label": "Amount", "default": -120},
-         {"key": "x", "kind": "int", "label": "X", "default": 0},
-         {"key": "y", "kind": "int", "label": "Y", "default": 0},
+         {"key": "amount", "kind": "int", "default": -120},
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
      ]},
 
+    # ------------------------------------------------------------ roblox
+    # Game-specific blocks. They send nothing a Mouse or Keyboard block
+    # cannot, but the defaults, the units and the map picker only make
+    # sense for a game, and mixing them into Mouse buried the plain
+    # blocks under them.
+    # Camera-look drag. Separate from "drag" because the whole point is
+    # that it sends nothing but relative deltas -- see the handler.
+    {"type": "mouse_look", "group": "Roblox", "color": "lime",
+     "fields": [
+         {"key": "button", "kind": "choice", "default": "right",
+          "options": ["right", "left", "middle", "none"]},
+         # "to limit" sweeps far past the camera's stop and ends pinned
+         # against it, which is the same place on every sensitivity.
+         # "exact" is the old aim-a-distance behaviour.
+         {"key": "mode", "kind": "choice", "default": "to limit",
+          "options": LOOK_MODE_OPTIONS},
+         {"key": "dx", "kind": "int", "default": 0},
+         {"key": "dy", "kind": "int", "default": 400},
+         {"key": "sweep_px", "kind": "int", "default": 40000},
+         {"key": "steps", "kind": "int", "default": 40},
+         {"key": "step_delay_ms", "kind": "int", "default": 8},
+         {"key": "centre_first", "kind": "bool", "default": True},
+         {"key": "settle_ms", "kind": "int", "default": 80},
+     ]},
+    {"type": "place_unit", "group": "Roblox", "color": "lime",
+     "fields": [
+         {"key": "unit", "kind": "key", "default": ""},
+         # [map name, x, y, image width, image height]. The image size
+         # travels with the point so the runner can scale it onto a
+         # window of a different size without reading the PNG.
+         {"key": "location", "kind": "map_point", "default": None},
+         # The game enters placement mode on the hotkey and needs time
+         # to spawn the ghost; a click before that is swallowed.
+         {"key": "key_delay_ms", "kind": "int", "default": 500},
+         {"key": "clicks", "kind": "int", "default": 2},
+         {"key": "after_ms", "kind": "int", "default": 250},
+     ]},
+    # Kills the client and joins again through the launcher's deep link.
+    # on_fail rides along because "the game never came back" is the one
+    # failure a long unattended run has to be able to react to.
+    {"type": "roblox_rejoin", "group": "Roblox", "color": "lime",
+     "fields": [
+         # One pasted share link replaces the two fields below it.
+         {"key": "share_link", "kind": "text", "default": ""},
+         {"key": "place_id", "kind": "text", "default": ""},
+         {"key": "link_code", "kind": "text", "default": ""},
+         {"key": "close_first", "kind": "bool", "default": True},
+         {"key": "close_wait_ms", "kind": "int", "default": 4000},
+         {"key": "timeout_ms", "kind": "int", "default": 90000},
+         {"key": "settle_ms", "kind": "int", "default": 12000},
+         {"key": "retarget", "kind": "bool", "default": True},
+     ] + _on_fail_fields()},
+
     # --------------------------------------------------------- keyboard
-    {"type": "send_key", "label": "Send Key", "group": "Keyboard", "color": "blue",
+    {"type": "send_key", "group": "Keyboard", "color": "blue",
      "fields": [
-         {"key": "key", "kind": "key", "label": "Key", "default": ""},
-         {"key": "hold_ms", "kind": "int", "label": "Hold ms", "default": 30},
-         {"key": "modifiers", "kind": "modifiers", "label": "Modifiers", "default": []},
+         {"key": "key", "kind": "key", "default": ""},
+         {"key": "hold_ms", "kind": "int", "default": 30},
+         {"key": "modifiers", "kind": "modifiers", "default": []},
      ]},
-    {"type": "type_text", "label": "Type Text", "group": "Keyboard", "color": "blue",
+    {"type": "type_text", "group": "Keyboard", "color": "blue",
      "fields": [
-         {"key": "text", "kind": "text", "label": "Text", "default": ""},
-         {"key": "delay_ms", "kind": "int", "label": "Per-char ms", "default": 20},
+         {"key": "text", "kind": "text", "default": ""},
+         {"key": "delay_ms", "kind": "int", "default": 20},
      ]},
-    {"type": "hold_key", "label": "Hold Key", "group": "Keyboard", "color": "blue",
+    {"type": "hold_key", "group": "Keyboard", "color": "blue",
      "fields": [
-         {"key": "key", "kind": "key", "label": "Key", "default": ""},
-         {"key": "hold_ms", "kind": "int", "label": "Hold ms", "default": 1000},
+         {"key": "key", "kind": "key", "default": ""},
+         {"key": "hold_ms", "kind": "int", "default": 1000},
      ]},
 
     # ----------------------------------------------------------- timing
-    {"type": "wait_ms", "label": "Wait (ms)", "group": "Timing", "color": "amber",
-     "fields": [{"key": "ms", "kind": "int", "label": "Milliseconds", "default": 500}]},
-    {"type": "wait_random", "label": "Wait Random", "group": "Timing", "color": "amber",
+    {"type": "wait_ms", "group": "Timing", "color": "amber",
+     "fields": [{"key": "ms", "kind": "int", "default": 500}]},
+    {"type": "wait_random", "group": "Timing", "color": "amber",
      "fields": [
-         {"key": "min_ms", "kind": "int", "label": "Min ms", "default": 200},
-         {"key": "max_ms", "kind": "int", "label": "Max ms", "default": 800},
+         {"key": "min_ms", "kind": "int", "default": 200},
+         {"key": "max_ms", "kind": "int", "default": 800},
      ]},
 
     # ----------------------------------------------------------- vision
-    {"type": "wait_image", "label": "Wait for Image", "group": "Vision", "color": "teal",
+    {"type": "wait_image", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "template", "kind": "template", "label": "Image", "default": ""},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "threshold", "kind": "float", "label": "Confidence", "default": 0.88},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
+         {"key": "template", "kind": "template", "default": ""},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "threshold", "kind": "float", "default": 0.88},
+         {"key": "region", "kind": "region", "default": None},
      ] + _on_fail_fields()},
-    {"type": "click_image", "label": "Click Image", "group": "Vision", "color": "teal",
+    {"type": "click_image", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "template", "kind": "template", "label": "Image", "default": ""},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "threshold", "kind": "float", "label": "Confidence", "default": 0.88},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
-         {"key": "button", "kind": "choice", "label": "Button", "default": "left",
+         {"key": "template", "kind": "template", "default": ""},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "threshold", "kind": "float", "default": 0.88},
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "button", "kind": "choice", "default": "left",
           "options": ["left", "right", "middle"]},
-         {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
-         {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
+         {"key": "offset_x", "kind": "int", "default": 0},
+         {"key": "offset_y", "kind": "int", "default": 0},
      ] + _on_fail_fields()},
-    {"type": "wait_image_gone", "label": "Wait Image Gone", "group": "Vision", "color": "teal",
+    {"type": "wait_image_gone", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "template", "kind": "template", "label": "Image", "default": ""},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "threshold", "kind": "float", "label": "Confidence", "default": 0.88},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
+         {"key": "template", "kind": "template", "default": ""},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "threshold", "kind": "float", "default": 0.88},
+         {"key": "region", "kind": "region", "default": None},
      ] + _on_fail_fields()},
-    {"type": "wait_color", "label": "Wait for Color", "group": "Vision", "color": "teal",
+    {"type": "wait_color", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "x", "kind": "int", "label": "X", "default": 0},
-         {"key": "y", "kind": "int", "label": "Y", "default": 0},
-         {"key": "color", "kind": "color", "label": "Color", "default": "#ffffff"},
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
+         {"key": "color", "kind": "color", "default": "#ffffff"},
          # Same 0-1 scale as the image and text blocks. The old 0-255
          # `tolerance` is still honoured when a saved macro carries it.
-         {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.92},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
+         {"key": "confidence", "kind": "float", "default": 0.92},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
      ] + _on_fail_fields()},
-    {"type": "click_color", "label": "Click Color", "group": "Vision", "color": "teal",
+    {"type": "click_color", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "color", "kind": "color", "label": "Color", "default": "#ffffff"},
-         {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.90},
-         {"key": "min_pixels", "kind": "int", "label": "Min pixels", "default": 40},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "button", "kind": "choice", "label": "Button", "default": "left",
+         {"key": "color", "kind": "color", "default": "#ffffff"},
+         {"key": "confidence", "kind": "float", "default": 0.90},
+         {"key": "min_pixels", "kind": "int", "default": 40},
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "button", "kind": "choice", "default": "left",
           "options": ["left", "right", "middle"]},
-         {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
-         {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
+         {"key": "offset_x", "kind": "int", "default": 0},
+         {"key": "offset_y", "kind": "int", "default": 0},
      ] + _on_fail_fields()},
-    {"type": "wait_text", "label": "Wait for Text", "group": "Vision", "color": "teal",
+    {"type": "wait_text", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "text", "kind": "text", "label": "Text", "default": ""},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.75},
-         {"key": "match", "kind": "choice", "label": "Match", "default": "contains",
+         {"key": "text", "kind": "text", "default": ""},
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "confidence", "kind": "float", "default": 0.75},
+         {"key": "match", "kind": "choice", "default": "contains",
           "options": ["contains", "exact"]},
      ] + _on_fail_fields()},
-    {"type": "click_text", "label": "Click Text", "group": "Vision", "color": "teal",
+    {"type": "click_text", "group": "Vision", "color": "teal",
      "fields": [
-         {"key": "text", "kind": "text", "label": "Text", "default": ""},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
-         {"key": "timeout_ms", "kind": "int", "label": "Timeout ms", "default": 8000},
-         {"key": "confidence", "kind": "float", "label": "Confidence", "default": 0.75},
-         {"key": "button", "kind": "choice", "label": "Button", "default": "left",
+         {"key": "text", "kind": "text", "default": ""},
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "timeout_ms", "kind": "int", "default": 8000},
+         {"key": "confidence", "kind": "float", "default": 0.75},
+         {"key": "button", "kind": "choice", "default": "left",
           "options": ["left", "right", "middle"]},
-         {"key": "offset_x", "kind": "int", "label": "Offset X", "default": 0},
-         {"key": "offset_y", "kind": "int", "label": "Offset Y", "default": 0},
+         {"key": "offset_x", "kind": "int", "default": 0},
+         {"key": "offset_y", "kind": "int", "default": 0},
      ] + _on_fail_fields()},
-    {"type": "read_text", "label": "Read Text", "group": "Vision", "color": "teal",
-     "fields": [{"key": "region", "kind": "region", "label": "Region", "default": None}]},
+    {"type": "read_text", "group": "Vision", "color": "teal",
+     "fields": [
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "confidence", "kind": "float", "default": 0.75},
+         # "off" keeps the block exactly as it was before comparing existed:
+         # read, log, carry on. Anything else turns it into a check.
+         {"key": "compare", "kind": "choice", "default": "off",
+          "options": TEXT_COMPARE_OPTIONS},
+         {"key": "expect", "kind": "text", "default": ""},
+     ] + _on_fail_fields()},
 
     # ------------------------------------------------------------ flow
-    {"type": "loop_start", "label": "Loop Start", "group": "Flow", "color": "violet",
-     "fields": [{"key": "count", "kind": "int", "label": "Times", "default": 2}]},
-    {"type": "loop_end", "label": "Loop End", "group": "Flow", "color": "violet",
+    {"type": "if_else", "group": "Flow", "color": "violet",
+     "fields": [
+         {"key": "condition", "kind": "condition", "default": None},
+         {"key": "then_blocks", "kind": "blocks", "default": []},
+         {"key": "else_blocks", "kind": "blocks", "default": []},
+     ]},
+    {"type": "while_loop", "group": "Flow", "color": "violet",
+     "fields": [
+         {"key": "condition", "kind": "condition", "default": None},
+         {"key": "blocks", "kind": "blocks", "default": []},
+         {"key": "max_iter", "kind": "int", "default": 100},
+     ]},
+    {"type": "repeat_until", "group": "Flow", "color": "violet",
+     "fields": [
+         {"key": "condition", "kind": "condition", "default": None},
+         {"key": "blocks", "kind": "blocks", "default": []},
+         {"key": "max_iter", "kind": "int", "default": 100},
+     ]},
+    {"type": "loop_start", "group": "Flow", "color": "violet",
+     "fields": [{"key": "count", "kind": "int", "default": 2}]},
+    {"type": "loop_end", "group": "Flow", "color": "violet",
      "fields": []},
-    {"type": "playback", "label": "Play Recording", "group": "Flow", "color": "violet",
+    # The two jumps a Vision block could already make through on_fail, as
+    # plain blocks -- so they can also sit at the end of a fallback list or
+    # behind a Watch check.
+    {"type": "restart_loop", "group": "Flow", "color": "violet",
+     "fields": []},
+    {"type": "restart_macro", "group": "Flow", "color": "violet",
+     "fields": []},
+    {"type": "playback", "group": "Flow", "color": "violet",
      "fields": [
-         {"key": "recording", "kind": "recording", "label": "Recording", "default": ""},
-         {"key": "speed", "kind": "float", "label": "Speed", "default": 1.0},
+         {"key": "recording", "kind": "recording", "default": ""},
+         {"key": "speed", "kind": "float", "default": 1.0},
      ]},
-    {"type": "focus_window", "label": "Focus Target", "group": "Flow", "color": "violet",
+    {"type": "focus_window", "group": "Flow", "color": "violet",
      "fields": [
-         {"key": "resize", "kind": "bool", "label": "Resize", "default": False},
-         {"key": "width", "kind": "int", "label": "Width", "default": 1280},
-         {"key": "height", "kind": "int", "label": "Height", "default": 720},
-         {"key": "move", "kind": "bool", "label": "Move", "default": False},
-         {"key": "x", "kind": "int", "label": "X", "default": 0},
-         {"key": "y", "kind": "int", "label": "Y", "default": 0},
+         {"key": "resize", "kind": "bool", "default": False},
+         {"key": "width", "kind": "int", "default": 1280},
+         {"key": "height", "kind": "int", "default": 720},
+         {"key": "move", "kind": "bool", "default": False},
+         {"key": "x", "kind": "int", "default": 0},
+         {"key": "y", "kind": "int", "default": 0},
      ]},
-    {"type": "log", "label": "Log Message", "group": "Flow", "color": "violet",
-     "fields": [{"key": "text", "kind": "text", "label": "Message", "default": ""}]},
+    {"type": "log", "group": "Flow", "color": "violet",
+     "fields": [{"key": "text", "kind": "text", "default": ""}]},
+
+    # ----------------------------------------------------------- system
+    {"type": "open_app", "group": "System", "color": "indigo",
+     "fields": [
+         {"key": "path", "kind": "text", "default": ""},
+         {"key": "args", "kind": "text", "default": ""},
+         {"key": "wait_ms", "kind": "int", "default": 0},
+     ]},
+    {"type": "kill_process", "group": "System", "color": "indigo",
+     "fields": [
+         {"key": "name", "kind": "text", "default": ""},
+         {"key": "force", "kind": "bool", "default": True},
+     ]},
 
     # ------------------------------------------------------------- notify
-    {"type": "send_webhook", "label": "Send Webhook", "group": "Notify", "color": "blue",
+    {"type": "send_webhook", "group": "Notify", "color": "blue",
      "fields": [
-         {"key": "message", "kind": "text", "label": "Message", "default": ""},
-         {"key": "source", "kind": "choice", "label": "Attach", "default": "none",
+         {"key": "message", "kind": "text", "default": ""},
+         {"key": "title", "kind": "text", "default": ""},
+         {"key": "color", "kind": "color", "default": ""},
+         {"key": "footer", "kind": "text", "default": ""},
+         {"key": "timestamp", "kind": "bool", "default": True},
+         {"key": "source", "kind": "choice", "default": "none",
           "options": ["none", "target window", "whole screen", "region", "saved image"]},
-         {"key": "region", "kind": "region", "label": "Region", "default": None},
-         {"key": "template", "kind": "template", "label": "Image", "default": ""},
+         {"key": "region", "kind": "region", "default": None},
+         {"key": "template", "kind": "template", "default": ""},
      ]},
 ]
 
@@ -271,6 +444,11 @@ def summarise(block: dict) -> str:
     Deliberately per-type rather than a generic key=value dump: the log is
     read while watching the macro run, and "Click 640,360 (left)" is legible
     where "x=640 y=360 button=left clicks=1 hold_ms=40" is not.
+
+    Translated through i18n rather than assembled out of the catalog's
+    labels: this is the highest-volume line in the log, so it has to read as
+    a sentence in the log's language, while the values inside it stay
+    whatever the macro actually stored.
     """
     params = block.get("params") or {}
     btype = block.get("type")
@@ -281,68 +459,126 @@ def summarise(block: dict) -> str:
 
     if btype == "click":
         clicks = int(g("clicks", 1) or 1)
-        return "Click %s,%s (%s%s)" % (g("x", 0), g("y", 0), g("button", "left"),
-                                        "" if clicks == 1 else " x%d" % clicks)
+        return tr("Click %s,%s (%s%s)") % (
+            g("x", 0), g("y", 0), g("button", "left"),
+            "" if clicks == 1 else " x%d" % clicks)
     if btype == "move":
-        return "Move to %s,%s" % (g("x", 0), g("y", 0))
+        return tr("Move to %s,%s") % (g("x", 0), g("y", 0))
+    if btype == "move_by":
+        return tr("Move by %s,%s") % (g("dx", 0), g("dy", 0))
     if btype == "drag":
-        return "Drag %s,%s -> %s,%s (%s)" % (g("x", 0), g("y", 0), g("x2", 0),
-                                              g("y2", 0), g("button", "left"))
+        # The summary has to say WHICH numbers these are: "0,200" means
+        # the top-left corner as a point and "200 pixels down" as an
+        # offset, and the row is unreadable if it does not distinguish
+        # the two.
+        start = (tr("cursor") if str(g("from_mode", "point")) == "current"
+                 else "%s,%s" % (g("x", 0), g("y", 0)))
+        if str(g("to_mode", "point")) == "offset":
+            return tr("Drag from %s by %s,%s (%s)") % (
+                start, g("x2", 0), g("y2", 0), g("button", "left"))
+        return tr("Drag from %s to %s,%s (%s)") % (
+            start, g("x2", 0), g("y2", 0), g("button", "left"))
+    if btype == "mouse_look":
+        if str(g("mode", "to limit")) != "exact":
+            return tr("Camera to the limit %s,%s (%s)") % (
+                g("dx", 0), g("dy", 0), g("button", "right"))
+        return tr("Look %s,%s x%s (%s)") % (
+            g("dx", 0), g("dy", 0), g("steps", 1), g("button", "right"))
+    if btype == "place_unit":
+        location = g("location", None)
+        unit = g("unit", "") or "?"
+        if isinstance(location, (list, tuple)) and len(location) >= 3:
+            return tr("Place %s on %s at %s,%s") % (
+                unit, location[0], location[1], location[2])
+        # No spot picked yet: say so rather than print "None at 0,0".
+        return tr("Place %s (no location)") % unit
+    if btype == "roblox_rejoin":
+        if str(g("share_link", "")).strip():
+            return tr("Rejoin Roblox (%s)") % tr("share link")
+        place = str(g("place_id", "")).strip()
+        return tr("Rejoin Roblox (%s)") % (place or tr("server from Settings"))
+    if btype == "restart_loop":
+        return tr("Restart this phase")
+    if btype == "restart_macro":
+        return tr("Restart the macro")
+    if btype == "if_else":
+        cond = bool(params.get("condition"))
+        return tr("If / Else (%s)") % (tr("condition set") if cond else tr("condition not set"))
+    if btype == "while_loop":
+        return tr("While loop (max %d)") % int(g("max_iter", 100) or 100)
+    if btype == "repeat_until":
+        return tr("Repeat until (max %d)") % int(g("max_iter", 100) or 100)
+    if btype == "open_app":
+        return tr("Open app %r") % str(g("path", ""))
+    if btype == "kill_process":
+        return tr("Kill process %r") % str(g("name", ""))
     if btype == "scroll":
         amount = int(g("amount", 0) or 0)
-        return "Scroll %s %d" % ("up" if amount > 0 else "down", abs(amount))
+        # Two whole templates rather than one with "up" or "down" dropped
+        # into it: a bare direction has no gender or case to agree with on
+        # its own, so no table can translate it in isolation.
+        if amount > 0:
+            return tr("Scroll up %d") % abs(amount)
+        return tr("Scroll down %d") % abs(amount)
     if btype == "send_key":
         mods = params.get("modifiers") or []
         combo = "+".join(list(mods) + [str(g("key", "?"))])
-        return "Key %s" % combo
+        return tr("Key %s") % combo
     if btype == "hold_key":
-        return "Hold %s for %sms" % (g("key", "?"), g("hold_ms", 0))
+        return tr("Hold %s for %sms") % (g("key", "?"), g("hold_ms", 0))
     if btype == "type_text":
         text = str(g("text", ""))
         shown = text if len(text) <= 40 else text[:37] + "..."
-        return "Type %r" % shown
+        return tr("Type %r") % shown
     if btype == "wait_ms":
-        return "Wait %sms" % g("ms", 0)
+        return tr("Wait %sms") % g("ms", 0)
     if btype == "wait_random":
-        return "Wait %s-%sms" % (g("min_ms", 0), g("max_ms", 0))
+        return tr("Wait %s-%sms") % (g("min_ms", 0), g("max_ms", 0))
     if btype == "wait_image":
-        return "Wait for image '%s'" % g("template", "?")
+        return tr("Wait for image '%s'") % g("template", "?")
     if btype == "click_image":
-        return "Click image '%s'" % g("template", "?")
+        return tr("Click image '%s'") % g("template", "?")
     if btype == "wait_image_gone":
-        return "Wait until image '%s' is gone" % g("template", "?")
+        return tr("Wait until image '%s' is gone") % g("template", "?")
     if btype == "wait_color":
-        return "Wait for colour %s at %s,%s" % (g("color", "?"), g("x", 0), g("y", 0))
+        return tr("Wait for colour %s at %s,%s") % (g("color", "?"), g("x", 0),
+                                                    g("y", 0))
     if btype == "click_color":
-        return "Click colour %s" % g("color", "?")
+        return tr("Click colour %s") % g("color", "?")
     if btype == "wait_text":
-        return "Wait for text %r" % str(g("text", ""))
+        return tr("Wait for text %r") % str(g("text", ""))
     if btype == "click_text":
-        return "Click text %r" % str(g("text", ""))
+        return tr("Click text %r") % str(g("text", ""))
     if btype == "read_text":
-        return "Read text"
+        op = str(g("compare", "off") or "off")
+        if op in ("", "off"):
+            return tr("Read text")
+        return tr("Read text %s %r") % (op, str(g("expect", "")))
     if btype == "loop_start":
-        return "Loop start x%s" % g("count", 1)
+        return tr("Loop start x%s") % g("count", 1)
     if btype == "loop_end":
-        return "Loop end"
+        return tr("Loop end")
     if btype == "playback":
-        return "Play recording '%s'" % g("recording", "?")
+        return tr("Play recording '%s'") % g("recording", "?")
     if btype == "focus_window":
         bits = []
         if params.get("resize"):
             bits.append("%sx%s" % (g("width", 0), g("height", 0)))
         if params.get("move"):
-            bits.append("at %s,%s" % (g("x", 0), g("y", 0)))
-        return "Focus target" + (" (" + " ".join(bits) + ")" if bits else "")
+            bits.append(tr("at %s,%s") % (g("x", 0), g("y", 0)))
+        return tr("Focus target") + (" (" + " ".join(bits) + ")" if bits else "")
     if btype == "log":
-        return "Log %r" % str(g("text", ""))
+        return tr("Log %r") % str(g("text", ""))
     if btype == "send_webhook":
         source = str(g("source", "none"))
         text = str(g("message", ""))
         shown = text if len(text) <= 30 else text[:27] + "..."
-        return "Webhook %r%s" % (shown, "" if source == "none" else " + " + source)
+        return tr("Webhook %r%s") % (
+            shown, "" if source == "none" else " + " + source)
+    # Only reachable for a type with no case above; the label it falls back
+    # to is whatever language the catalog is decorated in.
     spec = BY_TYPE.get(btype)
-    return spec["label"] if spec else str(btype)
+    return (spec or {}).get("label") or str(btype)
 
 
 def _self_check() -> None:
@@ -359,8 +595,9 @@ def _self_check() -> None:
 
 _self_check()
 
-# Hover help lives in its own module so the table above stays compact; it is
-# merged in here so every consumer sees one complete catalog.
+# Labels and hover help live in their own module so the table above stays
+# compact and translatable; they are merged in here so every consumer sees
+# one complete catalog.
 from . import block_help as _block_help  # noqa: E402
 
 _language = _block_help.DEFAULT_LANGUAGE
@@ -368,7 +605,7 @@ _block_help.apply_to(BLOCK_TYPES, _language)
 
 
 def set_language(language: str) -> str:
-    """Re-decorate the catalog with help in another language.
+    """Re-decorate the catalog with labels and help in another language.
 
     The catalog is a module-level singleton every consumer already holds a
     reference to, so this rewrites it in place rather than returning a copy.

@@ -8,6 +8,7 @@ The switch is sticky but self-correcting in BOTH directions: whichever path
 last produced real pixels wins, and a black frame flips it back.
 """
 import threading
+import time
 
 import numpy as np
 
@@ -123,6 +124,13 @@ def capture_target_bgr(hwnd=None, region=None):
         sw, sh = wm.get_screen_size()
         return grab_screen_bgr(0, 0, sw, sh)
 
+    # A minimized target has no meaningful client pixels. Restore it here,
+    # at the single capture boundary, so every caller gets a real screenshot.
+    if wm.restore_if_minimized(hwnd):
+        # Give the compositor a moment to recreate the client surface before
+        # PrintWindow/BitBlt reads it.
+        time.sleep(0.25)
+
     def _window_path():
         result = wm.capture_window_rgb(hwnd)
         if result is None:
@@ -169,6 +177,36 @@ def capture_target_bgr(hwnd=None, region=None):
             return None
         return frame[y:y + h, x:x + w].copy()
     return frame
+
+
+def frame_reference(hwnd=None, frame=None):
+    """What a captured frame is a picture OF, as a dict, or None.
+
+    {"origin": "window"|"screen", "left", "top", "width", "height",
+     "ref_width", "ref_height"}
+
+    Both window paths in capture_target_bgr cover the CLIENT area (PrintWindow
+    is handed the client DC at the client size), so a window frame is measured
+    from the client origin and its rect is in client coordinates -- that is
+    what lets a spot be rescaled when the window is a different size later.
+    A screen frame's rect is absolute screen pixels instead.
+
+    Recorded with saved map pictures because the two cannot be told apart
+    afterwards: the same spot on a full-screen shot means a screen coordinate
+    and on a window shot a window-relative one, and reading one as the other
+    puts the click a window-offset away from where it was picked.
+    """
+    if frame is None:
+        return None
+    fh, fw = frame.shape[:2]
+    if fw <= 0 or fh <= 0:
+        return None
+    if not hwnd or not wm.is_window(hwnd):
+        return {"origin": "screen", "left": 0, "top": 0,
+                "width": int(fw), "height": int(fh)}
+    return {"origin": "window", "left": 0, "top": 0,
+            "width": int(fw), "height": int(fh),
+            "ref_width": int(fw), "ref_height": int(fh)}
 
 
 def force_window_capture(on: bool = True) -> None:

@@ -77,8 +77,69 @@ def _retry_after(response) -> float:
     return min(RETRY_CAP_S, max(0.0, delay) + 0.25)
 
 
+EMBED_COLOUR = 0x8B5CF6
+
+
+def embed_colour(value) -> int:
+    """Convert a user-facing #RRGGBB value to Discord's integer colour."""
+    text = str(value or "").strip().lstrip("#")
+    try:
+        return int(text, 16) if len(text) == 6 else EMBED_COLOUR
+    except ValueError:
+        return EMBED_COLOUR
+
+
+def format_duration(seconds) -> str:
+    """Seconds as 0:07 / 3:41 / 1:02:33 -- the form a person reads."""
+    try:
+        total = int(max(0.0, float(seconds)))
+    except (TypeError, ValueError):
+        total = 0
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, secs)
+    return "%d:%02d" % (minutes, secs)
+
+
+def build_embed(title: str, description: str = "", fields=None,
+                image_filename: str = "", footer: str = "",
+                color=None, timestamp: bool = True) -> dict:
+    """A Discord embed: a titled card with a colour bar and name/value rows.
+
+    Every string is clipped to Discord's own limit here rather than at the
+    call sites -- an over-long field makes the API reject the WHOLE message,
+    so a long OCR string in a report must cost its own tail and nothing else.
+    """
+    embed = {"title": str(title or "")[:256],
+             "color": embed_colour(color)}
+    if description:
+        embed["description"] = str(description)[:4096]
+    rows = []
+    for field in (fields or [])[:25]:
+        name = str(field.get("name", ""))[:256]
+        value = str(field.get("value", ""))[:1024] or "-"
+        rows.append({"name": name or "-", "value": value,
+                     "inline": bool(field.get("inline", True))})
+    if rows:
+        embed["fields"] = rows
+    if image_filename:
+        # The picture travels as a normal attachment; this makes the embed
+        # show it inline instead of as a separate file below the card.
+        embed["image"] = {"url": "attachment://%s" % image_filename}
+    if footer:
+        embed["footer"] = {"text": str(footer)[:2048]}
+    if timestamp:
+        try:
+            embed["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z"
+        except Exception:
+            pass
+    return embed
+
+
 def send(url: str, content: str = "", image_bytes: bytes = None,
-         filename: str = "capture.png", username: str = "") -> dict:
+         filename: str = "capture.png", username: str = "",
+         embed: dict = None) -> dict:
     """Post a message, optionally with one PNG attached.
 
     Returns {"ok": bool, "reason": str}. Never raises: a failed webhook must
@@ -100,10 +161,12 @@ def send(url: str, content: str = "", image_bytes: bytes = None,
     payload = {"content": text}
     if username:
         payload["username"] = str(username)[:80]
+    if embed:
+        payload["embeds"] = [embed]
 
     if image_bytes is not None and len(image_bytes) > MAX_ATTACHMENT_BYTES:
         return {"ok": False, "reason": "attachment_too_large"}
-    if not text and image_bytes is None:
+    if not text and image_bytes is None and not embed:
         return {"ok": False, "reason": "nothing_to_send"}
 
     headers = {"User-Agent": USER_AGENT}

@@ -80,6 +80,52 @@ class Mouse:
             backend.button_up(button)
         pacing.action_pause()
 
+    def move_by(self, dx: int, dy: int, steps: int = 1,
+                delay: float = 0.0) -> None:
+        """Travel dx/dy in RELATIVE steps.
+
+        Relative on purpose, rather than reading the cursor and jumping to
+        position + delta. A game that locks and hides the pointer (Roblox and
+        friends) recenters it every frame and steers the camera from the raw
+        deltas, so an absolute jump produces no movement at all -- and
+        cursor_pos() reports the recentered point, which makes the arithmetic
+        wrong as well. In an ordinary window the two are indistinguishable.
+        """
+        steps = max(1, int(steps))
+        dx, dy = int(dx), int(dy)
+        sent_x = sent_y = 0
+        for i in range(1, steps + 1):
+            # Accumulate against the ideal position so integer truncation
+            # cannot lose pixels: 3 steps of 10/3 must still total 10.
+            want_x = int(round(dx * i / steps))
+            want_y = int(round(dy * i / steps))
+            step_x, step_y = want_x - sent_x, want_y - sent_y
+            if step_x or step_y:
+                backend.move_rel(step_x, step_y)
+                sent_x, sent_y = want_x, want_y
+            if delay > 0:
+                time.sleep(delay)
+
+    def drag_by(self, dx: int, dy: int, button: str = "left",
+                steps: int = 24, duration: float = 0.25,
+                settle: float = 0.05) -> None:
+        """Hold a button and travel dx/dy in relative steps.
+
+        The relative-move counterpart of drag(): same shape, no destination
+        coordinates. This is what a camera-look drag needs.
+        """
+        backend.button_down(button)
+        try:
+            time.sleep(max(0.0, settle))
+            steps = max(1, int(steps))
+            self.move_by(dx, dy, steps, max(0.0, duration) / steps)
+            time.sleep(max(0.0, settle))
+        finally:
+            # Never leave the button physically held: with right-click stuck
+            # down every later move reads as an active camera drag.
+            backend.button_up(button)
+        pacing.action_pause()
+
     def move_path(self, points, duration: float = 0.3) -> None:
         """Replay a recorded cursor path through its own points."""
         if not points:
